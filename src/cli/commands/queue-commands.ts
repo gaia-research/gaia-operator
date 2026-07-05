@@ -1,6 +1,5 @@
 import * as fs from "fs";
 import * as path from "path";
-import { OperatorTask } from "../../core/types.js";
 import { QueueEntryAdapter, QueueEntryLoadError } from "../../adapters/filesystem/queue-entry-adapter.js";
 import { TaskLoader } from "../../core/task-loader.js";
 import { TaskValidationError } from "../../core/errors.js";
@@ -103,7 +102,7 @@ export function exportDerivedTaskCommand(queueFile: string, destination?: string
       throw new QueueEntryLoadError(`Queue entry not found: ${queuePath}`);
     }
 
-    const task = QueueEntryAdapter.parseFile(queueFile);
+    const task = QueueEntryAdapter.parseFile(queuePath);
     const store = new StateStore();
     const artifactsDir = store.getArtifactsDir(task.id);
     const taskPath = path.join(artifactsDir, `${task.id}.derived.json`);
