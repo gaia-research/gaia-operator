@@ -40,11 +40,30 @@ describe("Action Risk Policy", () => {
     expect(() => engine.validateTaskPolicies({ ...baseTask, risk_ceiling: "L4" })).toThrow(/ENABLE_PUBLIC_WRITE is false/);
   });
 
+  it("should reject L5 task ceilings always", () => {
+    const engine = new PolicyEngine(true);
+    expect(() => engine.validateTaskPolicies({ ...baseTask, risk_ceiling: "L5" })).toThrow(/prohibited/);
+  });
+
   it("should reject prohibited automation constraints", () => {
     const engine = new PolicyEngine(false);
+    
+    // auto_dm
     expect(() => engine.validateTaskPolicies({
       ...baseTask,
       constraints: { ...baseTask.constraints, auto_dm: true }
+    })).toThrow(/prohibited automation|blocked/);
+
+    // proxy_rotation
+    expect(() => engine.validateTaskPolicies({
+      ...baseTask,
+      constraints: { ...baseTask.constraints, proxy_rotation: true }
+    })).toThrow(/prohibited automation|blocked/);
+
+    // fingerprint_spoofing
+    expect(() => engine.validateTaskPolicies({
+      ...baseTask,
+      constraints: { ...baseTask.constraints, fingerprint_spoofing: true }
     })).toThrow(/prohibited automation|blocked/);
   });
 });
