@@ -1,0 +1,33 @@
+id: mh-2026-07-reddit-001
+type: mobile_handoff
+platform: reddit
+mode: prepare_for_manual_reply
+risk_ceiling: L3
+target:
+  url: "https://www.reddit.com/r/example/comments/123456/how_to_avoid_browser_blocking"
+  community: "r/example"
+  context_summary: "Developer is asking about browser agent blocking."
+voice:
+  persona_ref: "personas/nova.md"
+  soul_ref: "Soul.md"
+guardrails:
+  source: "marketing-tasks"
+  refs:
+    - "guardrails/community-interaction.md"
+    - "guardrails/no-spam.md"
+    - "guardrails/nova-voice.md"
+draft:
+  mode: generate
+  instruction: "Write a concise, helpful reply. No hard sell. Link only if genuinely useful."
+constraints:
+  auto_post: false
+  auto_dm: false
+  require_manual_publish: true
+  copy_to_clipboard: true
+  open_url: true
+  notify_user: true
+outputs:
+  - handoff_card
+  - draft_text
+  - trace
+  - result_capture

@@ -4,7 +4,9 @@
   "description": "Browser Interaction and Platform Community Interaction Runtime",
   "main": "dist/index.js",
   "bin": {
-    "gaia-operator": "./bin/operator.js"
+    "gaia-operator": "./bin/operator.js",
+    "gaia-mobile": "./bin/gaia-mobile.js",
+    "gmh": "./bin/gmh.js"
   },
   "scripts": {
     "build": "tsc",
@@ -12,7 +14,9 @@
     "test:watch": "vitest",
     "operator": "tsx src/cli/index.ts",
     "doctor": "tsx src/cli/index.ts doctor",
-    "run-task": "tsx src/cli/index.ts run-task"
+    "run-task": "tsx src/cli/index.ts run-task",
+    "gaia-mobile": "tsx src/cli/gaia-mobile.ts",
+    "gmh": "tsx src/cli/gaia-mobile.ts"
   },
   "keywords": [
     "gaia",
