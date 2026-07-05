@@ -1,13 +1,21 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-export { 
+import { 
   MobileHandoffTaskSchema, 
   MobileHandoffTask, 
   checkGuardrails, 
   generateDraft, 
   loadRefFile 
 } from "./prepare.js";
+
+export { 
+  MobileHandoffTaskSchema, 
+  MobileHandoffTask, 
+  checkGuardrails, 
+  generateDraft, 
+  loadRefFile 
+};
 import { generateHandoffCard, generateBlockedCard } from "./approval-card.js";
 import { MobileHandoffAdapter } from "../../adapters/mobile/mobile-handoff.js";
 
@@ -51,7 +59,7 @@ export class MobileHandoffHarness {
     
     const result = MobileHandoffTaskSchema.safeParse(parsed);
     if (!result.success) {
-      throw new Error(`Task schema validation failed: ${result.error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")}`);
+      throw new Error(`Task schema validation failed: ${result.error.errors.map((e: any) => `${e.path.join(".")}: ${e.message}`).join("; ")}`);
     }
 
     return result.data;
