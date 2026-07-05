@@ -210,7 +210,7 @@ export class MobileHandoffHarness {
       notificationTitle: `Gaia Handoff: ${task.platform.toUpperCase()}`,
       notificationContent: `Draft copied. Review ${task.target.community || "thread"} before posting.`,
       taskId: task.id,
-      sharePayload: true // share draft text using share sheets
+      sharePayload: task.constraints.share_payload === true // share draft text using share sheets if enabled
     });
 
     // Write outcome status matching Output Contract (Section 10)

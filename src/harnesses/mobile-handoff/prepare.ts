@@ -10,7 +10,7 @@ export const MobileHandoffTaskSchema = z.object({
   type: z.literal("mobile_handoff"),
   platform: z.enum(["reddit", "github", "discord", "linkedin", "x", "generic"]),
   mode: z.string(),
-  risk_ceiling: z.enum(["L0", "L1", "L2", "L3", "L4", "L5"]),
+  risk_ceiling: z.enum(["L0", "L1", "L2", "L3"]),
   target: z.object({
     url: z.string().url("Target URL must be a valid URL"),
     community: z.string().optional(),
@@ -35,7 +35,8 @@ export const MobileHandoffTaskSchema = z.object({
     require_manual_publish: z.literal(true, { errorMap: () => ({ message: "require_manual_publish must be explicitly true" }) }),
     copy_to_clipboard: z.boolean().optional().default(true),
     open_url: z.boolean().optional().default(true),
-    notify_user: z.boolean().optional().default(true)
+    notify_user: z.boolean().optional().default(true),
+    share_payload: z.boolean().optional().default(false)
   }),
   outputs: z.array(z.string())
 });
@@ -61,6 +62,23 @@ export function checkGuardrails(task: MobileHandoffTask, draftText: string): Gua
   const allowedPlatforms = ["reddit", "github", "discord", "linkedin", "x", "generic"];
   if (!allowedPlatforms.includes(task.platform)) {
     violations.push(`Platform '${task.platform}' is not supported.`);
+  }
+
+  // URL compatibility checks
+  if (task.platform === "reddit" && !task.target.url.includes("reddit.com")) {
+    violations.push("Platform 'reddit' requires a target URL containing 'reddit.com'.");
+  }
+  if (task.platform === "github" && !task.target.url.includes("github.com")) {
+    violations.push("Platform 'github' requires a target URL containing 'github.com'.");
+  }
+  if (task.platform === "x" && !task.target.url.includes("x.com") && !task.target.url.includes("twitter.com")) {
+    violations.push("Platform 'x' requires a target URL containing 'x.com' or 'twitter.com'.");
+  }
+  if (task.platform === "linkedin" && !task.target.url.includes("linkedin.com")) {
+    violations.push("Platform 'linkedin' requires a target URL containing 'linkedin.com'.");
+  }
+  if (task.platform === "discord" && !task.target.url.includes("discord.com") && !task.target.url.includes("discordapp.com")) {
+    violations.push("Platform 'discord' requires a target URL containing 'discord.com' or 'discordapp.com'.");
   }
 
   // Explicitly manual constraints
@@ -121,8 +139,7 @@ export function generateDraft(task: MobileHandoffTask, personaContent?: string, 
 
   // Apply Nova voice tone modifications if voice files are provided
   if (personaContent || soulContent) {
-    const signature = "Nova";
-    baseDraft = `Hi! I saw your post about ${context}.\n\n${baseDraft}\n\nHope this helps!\n-${signature}`;
+    baseDraft = `[Nova Tone] ${baseDraft}`;
   }
 
   return baseDraft;

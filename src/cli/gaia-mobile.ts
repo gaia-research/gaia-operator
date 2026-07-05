@@ -82,6 +82,7 @@ program
   .argument("<taskId>", "Task identifier")
   .option("-s, --status <status>", "Status to record (posted, rejected, saved, etc.)")
   .option("-n, --notes <notes>", "Reviewer notes or comments")
+  .option("-f, --force", "Force recording even if no prepared handoff artifacts are found")
   .action((taskId, options) => {
     if (!options.status) {
       console.error("❌ Error: --status option is required.");
@@ -90,7 +91,8 @@ program
     const res = ResultCapture.record({
       taskId,
       status: options.status,
-      notes: options.notes
+      notes: options.notes,
+      force: !!options.force
     });
     if (res.success) {
       console.log(`✅ ${res.message}`);
@@ -110,11 +112,13 @@ program
   .description("Shortcut to mark a task as posted")
   .argument("<taskId>", "Task identifier")
   .option("-n, --notes <notes>", "Reviewer notes or comments")
+  .option("-f, --force", "Force recording even if no prepared handoff artifacts are found")
   .action((taskId, options) => {
     const res = ResultCapture.record({
       taskId,
       status: "posted",
-      notes: options.notes
+      notes: options.notes,
+      force: !!options.force
     });
     if (res.success) {
       console.log(`✅ ${res.message}`);
@@ -132,11 +136,13 @@ program
   .description("Shortcut to mark a task as rejected")
   .argument("<taskId>", "Task identifier")
   .option("-n, --notes <notes>", "Reviewer notes or comments")
+  .option("-f, --force", "Force recording even if no prepared handoff artifacts are found")
   .action((taskId, options) => {
     const res = ResultCapture.record({
       taskId,
       status: "rejected",
-      notes: options.notes
+      notes: options.notes,
+      force: !!options.force
     });
     if (res.success) {
       console.log(`✅ ${res.message}`);
@@ -154,11 +160,13 @@ program
   .description("Shortcut to mark a task as saved")
   .argument("<taskId>", "Task identifier")
   .option("-n, --notes <notes>", "Reviewer notes or comments")
+  .option("-f, --force", "Force recording even if no prepared handoff artifacts are found")
   .action((taskId, options) => {
     const res = ResultCapture.record({
       taskId,
       status: "saved_for_later",
-      notes: options.notes
+      notes: options.notes,
+      force: !!options.force
     });
     if (res.success) {
       console.log(`✅ ${res.message}`);

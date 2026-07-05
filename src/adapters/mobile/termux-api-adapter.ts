@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 export interface ExecutionResult {
   success: boolean;
@@ -9,37 +9,39 @@ export interface ExecutionResult {
 
 export class TermuxApiAdapter {
   /**
-   * Executes a shell command synchronously and returns the output/errors.
+   * Executes a command using spawnSync to avoid shell injection / escaping vulnerabilities.
    */
   static runCommand(command: string, args: string[] = []): ExecutionResult {
-    const fullCmd = args.length > 0 
-      ? `${command} ${args.map(arg => this.escapeArg(arg)).join(" ")}` 
-      : command;
-
     try {
-      const stdout = execSync(fullCmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+      const result = spawnSync(command, args, { 
+        encoding: "utf-8", 
+        stdio: ["pipe", "pipe", "pipe"] 
+      });
+      
       return {
-        success: true,
-        stdout: stdout.trim(),
-        stderr: ""
+        success: result.status === 0,
+        stdout: (result.stdout || "").toString().trim(),
+        stderr: (result.stderr || "").toString().trim(),
+        error: result.error
       };
     } catch (error: any) {
       return {
         success: false,
-        stdout: (error.stdout || "").toString().trim(),
-        stderr: (error.stderr || "").toString().trim(),
-        error: error as Error
+        stdout: "",
+        stderr: error.message || "",
+        error
       };
     }
   }
 
   /**
-   * Checks if a command is available on the system path.
+   * Checks if a command is available on the system path using spawnSync.
    */
   static isCommandAvailable(command: string): boolean {
     try {
-      execSync(`which ${command}`, { stdio: "ignore" });
-      return true;
+      // Use 'which' or 'command -v' (via shell only if command is built-in, but 'which' is standard on Unix/Android)
+      const result = spawnSync("which", [command], { stdio: "ignore" });
+      return result.status === 0;
     } catch {
       return false;
     }
@@ -68,13 +70,5 @@ export class TermuxApiAdapter {
     } catch {
       return { is_termux: true, raw_info: res.stdout };
     }
-  }
-
-  /**
-   * Helper to escape arguments for shell execution.
-   */
-  private static escapeArg(arg: string): string {
-    // Wrap in single quotes, escaping existing single quotes
-    return `'${arg.replace(/'/g, "'\\''")}'`;
   }
 }

@@ -1,8 +1,26 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { MobileHandoffHarness, MobileHandoffTaskSchema } from "../../src/harnesses/mobile-handoff/index.js";
 import { checkGuardrails, generateDraft } from "../../src/harnesses/mobile-handoff/prepare.js";
 import { generateHandoffCard, generateBlockedCard } from "../../src/harnesses/mobile-handoff/approval-card.js";
-import { mapStatus, ALLOWED_STATUSES } from "../../src/harnesses/mobile-handoff/result-capture.js";
+import { mapStatus, ResultCapture } from "../../src/harnesses/mobile-handoff/result-capture.js";
+import { TermuxApiAdapter } from "../../src/adapters/mobile/termux-api-adapter.js";
+import { ClipboardAdapter } from "../../src/adapters/mobile/clipboard-adapter.js";
+import * as fs from "fs";
+import * as path from "path";
+import { spawnSync } from "child_process";
+
+vi.mock("child_process", async () => {
+  const actual = await vi.importActual<typeof import("child_process")>("child_process");
+  return {
+    ...actual,
+    spawnSync: vi.fn((cmd, args, opts) => {
+      if (cmd === "which") {
+        return { status: 0, stdout: "/usr/bin/which", stderr: "" };
+      }
+      return { status: 0, stdout: "mock-output", stderr: "" };
+    })
+  };
+});
 
 describe("Mobile Handoff Harness Unit Tests", () => {
   const validTaskPayload = {
@@ -56,11 +74,41 @@ describe("Mobile Handoff Harness Unit Tests", () => {
     expect(parseResult.success).toBe(false);
   });
 
+  // Fix 1 test: L4/L5 risk ceiling rejection
+  it("should reject L4 and L5 risk ceilings at schema level", () => {
+    const invalidL4 = {
+      ...validTaskPayload,
+      risk_ceiling: "L4"
+    };
+    const invalidL5 = {
+      ...validTaskPayload,
+      risk_ceiling: "L5"
+    };
+    expect(MobileHandoffTaskSchema.safeParse(invalidL4).success).toBe(false);
+    expect(MobileHandoffTaskSchema.safeParse(invalidL5).success).toBe(false);
+  });
+
   it("should correctly verify guardrails", () => {
     const task = MobileHandoffTaskSchema.parse(validTaskPayload);
     const draftText = generateDraft(task);
     const res = checkGuardrails(task, draftText);
     expect(res.passed).toBe(true);
+  });
+
+  // Fix 2 test: platform/URL compatibility checks
+  it("should reject task if target URL does not match platform", () => {
+    const mismatchedReddit = {
+      ...validTaskPayload,
+      platform: "reddit",
+      target: {
+        url: "https://www.github.com/some/issue",
+        community: "r/example"
+      }
+    };
+    const task = MobileHandoffTaskSchema.parse(mismatchedReddit);
+    const res = checkGuardrails(task, "Hello World");
+    expect(res.passed).toBe(false);
+    expect(res.violations[0]).toContain("Platform 'reddit' requires a target URL containing 'reddit.com'");
   });
 
   it("should fail guardrails if draft has spammy word patterns", () => {
@@ -106,5 +154,53 @@ describe("Mobile Handoff Harness Unit Tests", () => {
     expect(mapStatus("posted_with_edits")).toBe("posted_with_edits");
     expect(mapStatus("saved")).toBe("saved_for_later");
     expect(mapStatus("rejected")).toBe("rejected");
+  });
+
+  // Fix 3 test: share disabled by default
+  it("should default share_payload to false in schema", () => {
+    const parsed = MobileHandoffTaskSchema.parse(validTaskPayload);
+    expect(parsed.constraints.share_payload).toBe(false);
+  });
+
+  // Fix 4 test: result capture without prepared artifacts
+  it("should reject result capture without prepared artifacts unless forced", () => {
+    const randomId = `nonexistent-task-${Date.now()}`;
+    
+    // Attempt without force
+    const failRes = ResultCapture.record({
+      taskId: randomId,
+      status: "posted"
+    });
+    expect(failRes.success).toBe(false);
+    expect(failRes.message).toContain("No prepared handoff artifacts found");
+
+    // Attempt with force
+    const successRes = ResultCapture.record({
+      taskId: randomId,
+      status: "posted",
+      force: true
+    });
+    expect(successRes.success).toBe(true);
+
+    // Verify unverified_capture flag is set
+    const resultFile = path.resolve(process.cwd(), ".gaia-operator", "mobile", "handoffs", randomId, "result.json");
+    expect(fs.existsSync(resultFile)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(resultFile, "utf-8"));
+    expect(content.unverified_capture).toBe(true);
+
+    // Clean up
+    fs.rmSync(path.dirname(resultFile), { recursive: true, force: true });
+    const altResultFile = path.resolve(process.cwd(), "artifacts", "mobile-handoff", randomId);
+    fs.rmSync(altResultFile, { recursive: true, force: true });
+  });
+
+  // Fix 5 test: shell-safe command execution behavior
+  it("should use spawnSync instead of shell execution", () => {
+    TermuxApiAdapter.runCommand("mock-cmd", ["arg1", "arg 2; rm -rf /"]);
+    expect(spawnSync).toHaveBeenCalledWith(
+      "mock-cmd", 
+      ["arg1", "arg 2; rm -rf /"], 
+      expect.objectContaining({ stdio: expect.any(Array) })
+    );
   });
 });
