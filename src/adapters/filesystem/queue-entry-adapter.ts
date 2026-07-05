@@ -103,9 +103,10 @@ function inferConstraints(raw: Record<string, unknown>, channel: string): Record
   if (channel === "reddit") {
     constraints.require_approval = true;
     constraints.auto_post = false;
+    constraints.auto_vote = false;
     constraints.allow_top_level_only_if_allowed = true;
     constraints.max_comments = 1;
-    constraints.max_votes = 3;
+    constraints.max_votes = 0;
     constraints.public_write_disabled = true;
   }
 

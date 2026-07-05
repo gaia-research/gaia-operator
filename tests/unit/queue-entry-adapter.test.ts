@@ -61,6 +61,8 @@ Read the thread about smart context reduction and note safe follow-up angles.
     expect(task.outputs).toContain("markdown_report");
     expect(task.outputs).toContain("draft_replies_markdown");
     expect(task.constraints.auto_post).toBe(false);
+    expect(task.constraints.auto_vote).toBe(false);
+    expect(task.constraints.max_votes).toBe(0);
     expect(task.constraints.public_write_disabled).toBe(true);
     expect(task.objective).toContain("Read the thread about smart context reduction");
     expect((task.queries ?? []).length).toBeGreaterThan(0);
@@ -84,8 +86,9 @@ Lightweight explorer task.
     const task = QueueEntryAdapter.parseFile(filePath);
     expect(task.platforms).toContain("reddit");
     expect(task.constraints.auto_post).toBe(false);
+    expect(task.constraints.auto_vote).toBe(false);
     expect(task.constraints.max_comments).toBe(1);
-    expect(task.constraints.max_votes).toBe(3);
+    expect(task.constraints.max_votes).toBe(0);
     expect(task.constraints.public_write_disabled).toBe(true);
   });
 
