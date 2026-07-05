@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Compilation
+dist/
+*.tsbuildinfo
+
+# Local configuration
+.env
+.env.local
+
+# Run artifacts & session data
+.gaia-operator/
+artifacts/
+sessions/
+traces/
+*.har
+*.trace.zip
+storageState.json
+cookies.json
+
+# OS files
+.DS_Store
+Thumbs.db

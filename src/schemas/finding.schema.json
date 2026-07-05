@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Finding",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "platform": { "type": "string" },
+    "community": { "type": "string" },
+    "url": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "excerpt": { "type": "string" },
+    "relevance_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "interaction_risk": { "type": "string", "enum": ["low", "medium", "high", "blocked"] },
+    "recommended_action": { "type": "string", "enum": ["observe", "draft", "skip", "approval_required"] },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["id", "task_id", "platform", "url", "summary", "relevance_score", "interaction_risk", "recommended_action", "evidence_refs"],
+  "additionalProperties": false
+}

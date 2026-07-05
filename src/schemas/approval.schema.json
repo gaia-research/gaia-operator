@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ApprovalRequest",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string" },
+    "finding_id": { "type": "string" },
+    "target_url": { "type": "string" },
+    "community": { "type": "string" },
+    "user_need": { "type": "string" },
+    "suggested_angle": { "type": "string" },
+    "draft_reply": { "type": "string" },
+    "nova_voice_status": { "type": "string", "enum": ["applied", "needs_persona_sync", "neutral_fallback"] },
+    "risk_level": { "type": "string", "enum": ["L2", "L3", "L4"] },
+    "approval_required": { "type": "boolean" }
+  },
+  "required": ["id", "finding_id", "target_url", "community", "user_need", "suggested_angle", "nova_voice_status", "risk_level", "approval_required"],
+  "additionalProperties": false
+}

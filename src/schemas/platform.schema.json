@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PlatformRegistryEntry",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "allowedAccessModes": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["api", "browser", "cua_fallback"] }
+    },
+    "defaultRiskCeiling": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "publicWriteEnabledByDefault": { "type": "boolean" },
+    "blockedActions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "stopConditions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["name", "allowedAccessModes", "defaultRiskCeiling", "publicWriteEnabledByDefault", "blockedActions", "stopConditions"],
+  "additionalProperties": false
+}

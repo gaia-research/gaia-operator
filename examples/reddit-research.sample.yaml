@@ -1,0 +1,31 @@
+id: sample-reddit-research-task
+title: Sample Reddit Research for Browser Automation
+campaign: gaia-sample
+platforms:
+  - reddit
+mode: research_and_draft
+risk_ceiling: L3
+voice:
+  persona_ref: personas/nova.md
+  soul_ref: Soul.md
+guardrails:
+  source: local
+  refs:
+    - local-rules.md
+objective: >
+  Search Reddit to identify developer pain points with Playwright, browser blocking,
+  and computer-use setup. Draft helpful response recommendations.
+queries:
+  - browser agent reddit blocking
+  - Playwright MCP agent reddit
+  - CUA web agent blocked
+constraints:
+  cite_sources: true
+  do_not_post: true
+  require_approval: true
+outputs:
+  - markdown_report
+  - findings_jsonl
+  - opportunities_csv
+  - draft_replies_markdown
+  - trace_json

@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OperatorTask",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "campaign": {
+      "type": "string"
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["reddit", "hackernews", "github", "discord", "linkedin", "x", "youtube", "generic"]
+      }
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["research", "research_and_draft", "prepare_interaction"]
+    },
+    "risk_ceiling": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3", "L4", "L5"]
+    },
+    "voice": {
+      "type": "object",
+      "properties": {
+        "persona_ref": { "type": "string" },
+        "soul_ref": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "guardrails": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["marketing-tasks", "local"]
+        },
+        "refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["source", "refs"],
+      "additionalProperties": false
+    },
+    "objective": {
+      "type": "string"
+    },
+    "queries": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["boolean", "string", "number"]
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "markdown_report",
+          "findings_jsonl",
+          "opportunities_csv",
+          "draft_replies_markdown",
+          "evidence_screenshots_when_browser_used",
+          "trace_json",
+          "blocked_state_markdown",
+          "approval_request_markdown"
+        ]
+      }
+    }
+  },
+  "required": ["id", "title", "platforms", "mode", "risk_ceiling", "guardrails", "objective", "outputs"],
+  "additionalProperties": false
+}

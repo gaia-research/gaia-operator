@@ -1,0 +1,44 @@
+{
+  "task_id": "sample-reddit-research-task",
+  "status": "completed",
+  "risk_ceiling_used": "L3",
+  "public_actions_taken": 0,
+  "approval_required": true,
+  "steps": [
+    {
+      "step_id": "step_001",
+      "action": "build_plan",
+      "platform": "reddit",
+      "risk_level": "L1",
+      "input": {
+        "taskMode": "research_and_draft"
+      },
+      "output": {
+        "planSteps": [
+          "policy_check",
+          "init_adapters",
+          "search",
+          "extract_details",
+          "draft_replies",
+          "export_artifacts"
+        ]
+      },
+      "timestamp": "2026-07-06T00:00:00.100Z"
+    },
+    {
+      "step_id": "step_002",
+      "action": "api_search",
+      "platform": "reddit",
+      "risk_level": "L0",
+      "input": {
+        "query": "browser agent reddit blocking"
+      },
+      "output": {
+        "threadCount": 3
+      },
+      "timestamp": "2026-07-06T00:00:00.500Z"
+    }
+  ],
+  "created_at": "2026-07-06T00:00:00.000Z",
+  "completed_at": "2026-07-06T00:00:00.800Z"
+}

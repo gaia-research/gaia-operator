@@ -1,0 +1,14 @@
+{
+  "task_id": "test-task-id",
+  "status": "completed",
+  "risk_ceiling_used": "L3",
+  "public_actions_taken": 0,
+  "approval_required": true,
+  "artifacts": {
+    "report": "/data/data/com.termux/files/home/gaia-operator/.gaia-operator-test/artifacts/test-task-id/report.md",
+    "trace": "/data/data/com.termux/files/home/gaia-operator/.gaia-operator-test/artifacts/test-task-id/trace.json",
+    "approval_request": "/data/data/com.termux/files/home/gaia-operator/.gaia-operator-test/artifacts/test-task-id/approval-request.md"
+  },
+  "blocked": false,
+  "recommended_next_action": "Review proposed draft replies in: /data/data/com.termux/files/home/gaia-operator/.gaia-operator-test/artifacts/test-task-id/approval-request.md"
+}

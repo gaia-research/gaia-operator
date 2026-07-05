@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResultSummary",
+  "type": "object",
+  "properties": {
+    "task_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["completed", "failed", "blocked"] },
+    "risk_ceiling_used": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "public_actions_taken": { "type": "integer" },
+    "approval_required": { "type": "boolean" },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "report": { "type": "string" },
+        "findings": { "type": "string" },
+        "opportunities": { "type": "string" },
+        "draft_replies": { "type": "string" },
+        "trace": { "type": "string" },
+        "blocked_state": { "type": "string" },
+        "approval_request": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "blocked": { "type": "boolean" },
+    "recommended_next_action": { "type": "string" }
+  },
+  "required": ["task_id", "status", "risk_ceiling_used", "public_actions_taken", "approval_required", "artifacts", "blocked", "recommended_next_action"],
+  "additionalProperties": false
+}

@@ -1,0 +1,47 @@
+id: mt-2026-07-reddit-browser-agents-001
+title: Reddit research for browser-agent pain points
+campaign: gaia-research-community
+platforms:
+  - reddit
+
+mode: research_and_draft
+risk_ceiling: L3
+
+voice:
+  persona_ref: personas/nova.md
+  soul_ref: Soul.md
+
+guardrails:
+  source: marketing-tasks
+  refs:
+    - guardrails/community-interaction.md
+    - guardrails/no-spam.md
+    - guardrails/nova-voice.md
+
+objective: >
+  Find authentic discussions where developers are struggling with browser agents,
+  CUA, Playwright MCP, Reddit blocking, or AI agent interaction harnesses.
+  Return useful insights and draft helpful replies.
+
+queries:
+  - browser agent reddit blocking
+  - Playwright MCP agent reddit
+  - computer use agent browser automation
+  - CUA web agent blocked
+  - AI agent harness browser
+
+constraints:
+  do_not_post: true
+  do_not_dm: true
+  do_not_join_communities: true
+  do_not_create_accounts: true
+  no_platform_evasion: true
+  cite_sources: true
+  require_approval: true
+
+outputs:
+  - markdown_report
+  - findings_jsonl
+  - opportunities_csv
+  - draft_replies_markdown
+  - trace_json

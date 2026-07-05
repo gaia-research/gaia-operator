@@ -1,0 +1,17 @@
+{
+  "id": "test-task-id",
+  "title": "Test Task",
+  "platforms": ["reddit"],
+  "mode": "research_and_draft",
+  "risk_ceiling": "L3",
+  "guardrails": {
+    "source": "local",
+    "refs": []
+  },
+  "objective": "Verify harness processes correctly",
+  "queries": ["browser agent"],
+  "constraints": {
+    "do_not_post": true
+  },
+  "outputs": ["markdown_report", "trace_json"]
+}
