@@ -6,6 +6,7 @@ import { validateTaskCommand } from "./commands/validate-task.js";
 import { runTaskCommand } from "./commands/run-task.js";
 import { replayTraceCommand } from "./commands/replay-trace.js";
 import { exportReportCommand } from "./commands/export-report.js";
+import { validateQueueEntryCommand, runQueueEntryCommand, exportDerivedTaskCommand } from "./commands/queue-commands.js";
 import { PlatformPolicyRegistry } from "../policies/platform-policy-registry.js";
 
 const program = new Command();
@@ -53,6 +54,31 @@ program
   .argument("[destination]", "Path to output destination report file")
   .action(async (artifactsDir, destination) => {
     await exportReportCommand(artifactsDir, destination);
+  });
+
+program
+  .command("validate-queue-entry")
+  .description("Validate a marketing-tasks queue markdown entry and inspect derived runner task")
+  .argument("<queueFile>", "Path to queue markdown file")
+  .action(async (queueFile) => {
+    await validateQueueEntryCommand(queueFile);
+  });
+
+program
+  .command("run-queue-entry")
+  .description("Run a marketing-tasks queue entry directly after deriving a runner task")
+  .argument("<queueFile>", "Path to queue markdown file")
+  .action(async (queueFile) => {
+    await runQueueEntryCommand(queueFile);
+  });
+
+program
+  .command("export-derived-task")
+  .description("Export the derived OperatorTask JSON for a queue entry")
+  .argument("<queueFile>", "Path to queue markdown file")
+  .argument("[destination]", "Path to output derived task JSON")
+  .action(async (queueFile, destination) => {
+    await exportDerivedTaskCommand(queueFile, destination);
   });
 
 program
