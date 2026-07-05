@@ -94,6 +94,125 @@ pnpm operator list-platforms
 
 ---
 
+## Hermes + Marketing Tasks Workflow
+
+Gaia Operator can be driven by Hermes Agent as the execution layer for queue entries from `marketing-tasks`.
+
+The intended flow is:
+```text
+marketing-tasks queue entry
+  ↓
+Hermes Agent selects the task
+  ↓
+Gaia Operator validates the queue markdown
+  ↓
+Gaia Operator derives an OperatorTask JSON
+  ↓
+Gaia Operator runs the task under policy gates
+  ↓
+Artifacts are written for review
+  ↓
+marketing-tasks receives the status/evidence update
+```
+
+### Recommended Hermes Loop
+
+From a workspace containing both repositories:
+
+```text
+../marketing-tasks/
+../gaia-operator/
+```
+
+Run:
+
+```bash
+cd ../gaia-operator
+pnpm operator doctor
+pnpm operator validate-queue-entry ../marketing-tasks/queue/<task>.md
+pnpm operator export-derived-task ../marketing-tasks/queue/<task>.md
+pnpm operator run-queue-entry ../marketing-tasks/queue/<task>.md
+```
+
+Hermes should treat `validate-queue-entry` as the preflight step. If validation fails, do not run the task. Fix the queue entry or report the blocker back to `marketing-tasks`.
+
+### What Hermes May Do
+
+Hermes may:
+
+* Select a queue entry from `marketing-tasks`
+* Validate queue markdown
+* Derive an `OperatorTask`
+* Run research and draft-only tasks
+* Inspect generated artifacts
+* Summarize findings back to `marketing-tasks`
+* Create or update a status note with report links
+* Stop and report blocked states
+
+### What Hermes Must Not Do
+
+Hermes must not:
+
+* Auto-post
+* Auto-comment
+* Auto-DM
+* Auto-like or upvote
+* Join communities
+* Create accounts
+* Bypass login, CAPTCHA, 2FA, rate limits, or platform warnings
+* Use CUA to sneak around browser or platform restrictions
+
+The MVP rule is:
+> **Gaia Operator may observe, extract, draft, and prepare evidence. A human approves public action.**
+
+### Expected Artifacts
+
+A successful run writes artifacts under:
+
+```text
+.gaia-operator/artifacts/<task-id>/
+```
+
+Expected files may include:
+
+* `<task-id>.derived.json`
+* `report.md`
+* `findings.jsonl`
+* `opportunities.csv`
+* `draft-replies.md`
+* `trace.json`
+* `approval-request.md`
+* `blocked-state.md`
+* `screenshots/`
+
+Hermes should always inspect:
+
+1. `report.md`
+2. `trace.json`
+3. `approval-request.md`, if present
+4. `blocked-state.md`, if present
+
+### Status Sync Back to Marketing Tasks
+
+After a run, Hermes should update the originating queue entry or create a nearby status note with:
+
+```markdown
+## Gaia Operator Result
+- Status:
+- Task ID:
+- Public actions taken: 0
+- Approval required:
+- Blocked:
+- Report:
+- Trace:
+- Draft replies:
+- Recommended next action:
+```
+
+Do not paste draft replies into public platforms from automation. Keep them in `marketing-tasks` for human review.
+
+---
+
 ## Safety Guidelines (Fail-Closed)
 
 The runtime prioritizes platform compliance and terms of service integrity. Evasion methods (like proxy rotations, fingerprint spoofing, or captcha auto-solving) are strictly disabled. When a roadblock (like CAPTCHA or Login Challenge) is detected, the run finishes immediately and writes a `blocked-state.md` report requiring human intervention.
