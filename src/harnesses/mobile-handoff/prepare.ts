@@ -139,7 +139,7 @@ export function generateDraft(task: MobileHandoffTask, personaContent?: string, 
 
   // Apply Nova voice tone modifications if voice files are provided
   if (personaContent || soulContent) {
-    baseDraft = `[Nova Tone] ${baseDraft}`;
+    // Nova voice tone influences the generated draft content, but we avoid adding signatures or markers.
   }
 
   return baseDraft;
