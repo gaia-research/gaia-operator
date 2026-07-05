@@ -9,17 +9,26 @@ export class PlaywrightAdapter {
   async init(headless = true): Promise<boolean> {
     try {
       const playwright = await import("playwright");
-      this.browser = await playwright.chromium.launch({ 
+      this.browser = await playwright.chromium.launch({
         headless,
         args: ["--no-sandbox", "--disable-setuid-sandbox"]
       });
+
+      const userAgent = process.env.GAIA_OPERATOR_BROWSER_USER_AGENT;
       this.context = await this.browser.newContext({
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ...(userAgent ? { userAgent } : {})
       });
+
       this.isMock = false;
       return true;
     } catch (err: any) {
-      console.warn(`[PlaywrightAdapter] Launch failed: ${err.message}. Falling back to simulated browser mode.`);
+      if (!this.isSimulationAllowed()) {
+        throw new Error(
+          `Playwright launch failed and simulation is disabled. Run 'pnpm operator doctor' or set GAIA_OPERATOR_ALLOW_SIMULATION=true only for local dry-runs/tests. Cause: ${err.message}`
+        );
+      }
+
+      console.warn(`[PlaywrightAdapter] Launch failed: ${err.message}. Using explicit simulated browser mode.`);
       this.isMock = true;
       return false;
     }
@@ -34,32 +43,7 @@ export class PlaywrightAdapter {
     screenshotDir?: string
   ): Promise<{ content: string; title: string; screenshotPath?: string }> {
     if (this.isMock) {
-      // Return simulated markup
-      const mockTitle = `Simulated Page - ${new URL(url).hostname}`;
-      const mockContent = `
-        <html>
-          <head><title>${mockTitle}</title></head>
-          <body>
-            <div id="mock-container">
-              <h1>Search Results for Community</h1>
-              <p>Found discussion threads about browser automation, CUA, and Playwright MCP agents.</p>
-              <div class="thread" url="https://www.reddit.com/r/node/comments/123">
-                <a href="/r/node/comments/123" class="title">Struggling with browser agents blocking on Reddit</a>
-                <p class="body">I am trying to run standard Playwright script to fetch Reddit posts and it gets blocked by CAPTCHA instantly. Any tips?</p>
-              </div>
-              <div class="thread" url="https://www.reddit.com/r/LanguageTechnology/comments/456">
-                <a href="/r/LanguageTechnology/comments/456" class="title">Playwright MCP server for browser control</a>
-                <p class="body">Has anyone tried the new Playwright Model Context Protocol server? It exposes accessibility trees which is so much better than sending raw screenshots to LLMs.</p>
-              </div>
-              <div class="thread" url="https://www.reddit.com/r/artificial/comments/789">
-                <a href="/r/artificial/comments/789" class="title">Computer Use Agent Setup</a>
-                <p class="body">Setting up Hermes CUA on my Macbook. I keep running into screen recording permission prompt failures. Has anyone run the hermes computer-use doctor command to troubleshoot?</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
-      return { content: mockContent, title: mockTitle };
+      return this.simulatedNavigate(url);
     }
 
     if (!this.context) {
@@ -79,7 +63,7 @@ export class PlaywrightAdapter {
         }
         const filename = `screenshot_${Date.now()}.png`;
         screenshotPath = path.join(screenshotDir, filename);
-        await page.screenshot({ path: screenshotPath });
+        await page.screenshot({ path: screenshotPath, fullPage: true });
       }
 
       return { content, title, screenshotPath };
@@ -94,5 +78,34 @@ export class PlaywrightAdapter {
       this.browser = null;
       this.context = null;
     }
+  }
+
+  private isSimulationAllowed(): boolean {
+    return process.env.GAIA_OPERATOR_ALLOW_SIMULATION === "true" || process.env.NODE_ENV === "test";
+  }
+
+  private simulatedNavigate(url: string): { content: string; title: string } {
+    const mockTitle = `Simulated Page - ${new URL(url).hostname}`;
+    const mockContent = `
+      <html>
+        <head><title>${mockTitle}</title></head>
+        <body data-gaia-simulation="true">
+          <p>Simulated browser content. Do not treat this as live platform evidence.</p>
+          <div class="thread" url="https://www.reddit.com/r/node/comments/123">
+            <a href="/r/node/comments/123" class="title">Struggling with browser agents blocking on Reddit</a>
+            <p class="body">I am trying to run a standard Playwright script to fetch Reddit posts and it gets blocked by CAPTCHA instantly. Any tips?</p>
+          </div>
+          <div class="thread" url="https://www.reddit.com/r/LanguageTechnology/comments/456">
+            <a href="/r/LanguageTechnology/comments/456" class="title">Playwright MCP server for browser control</a>
+            <p class="body">Has anyone tried the Playwright Model Context Protocol server? It exposes accessibility trees, which looks more stable than sending raw screenshots to LLMs.</p>
+          </div>
+          <div class="thread" url="https://www.reddit.com/r/artificial/comments/789">
+            <a href="/r/artificial/comments/789" class="title">Computer Use Agent Setup</a>
+            <p class="body">Setting up Hermes CUA on my MacBook. I keep running into screen recording permission prompt failures.</p>
+          </div>
+        </body>
+      </html>
+    `;
+    return { content: mockContent, title: mockTitle };
   }
 }

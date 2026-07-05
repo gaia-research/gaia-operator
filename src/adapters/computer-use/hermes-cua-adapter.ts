@@ -21,7 +21,7 @@ export class HermesCuaAdapter {
   }
 
   async runCuaAction(action: string, params: Record<string, any>): Promise<{
-    status: "success" | "failed";
+    status: "success" | "failed" | "gated";
     driver: string;
     action: string;
     screenshot?: string;
@@ -37,18 +37,17 @@ export class HermesCuaAdapter {
         status: "failed",
         driver: "hermes",
         action,
-        error: "Hermes CLI binary not found in PATH."
+        error: "Hermes CLI binary not found in PATH. Run pnpm operator doctor and hermes computer-use doctor on the MacBook."
       };
     }
 
-    console.log(`[HermesCuaAdapter] Executing CUA action: '${action}' with params:`, params);
+    console.log(`[HermesCuaAdapter] CUA action requested: '${action}' with params:`, params);
 
-    // Call mock action since CUA runs interactively on macOS desktop
     return {
-      status: "success",
+      status: "gated",
       driver: "hermes",
       action,
-      screenshot: "cua_session_step.png"
+      error: "Hermes CUA direct execution is intentionally gated in the MVP adapter. Use it only through an explicit human-reviewed runbook, never as silent fallback."
     };
   }
 }

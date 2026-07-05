@@ -2,6 +2,20 @@ import { describe, it, expect } from "vitest";
 import { getActionRiskLevel, isActionAllowed } from "../../src/policies/action-risk.js";
 import { PlatformPolicyRegistry } from "../../src/policies/platform-policy-registry.js";
 import { PolicyEngine } from "../../src/core/policy-engine.js";
+import { OperatorTask } from "../../src/core/types.js";
+
+const baseTask: OperatorTask = {
+  id: "policy-test",
+  title: "Policy Test",
+  platforms: ["reddit"],
+  mode: "research_and_draft",
+  risk_ceiling: "L3",
+  guardrails: { source: "local", refs: [] },
+  objective: "Test policy engine",
+  queries: ["browser agents"],
+  constraints: { do_not_post: true },
+  outputs: ["markdown_report"]
+};
 
 describe("Action Risk Policy", () => {
   it("should correctly classify risk levels", () => {
@@ -14,25 +28,24 @@ describe("Action Risk Policy", () => {
   });
 
   it("should validate risk ceiling constraints", () => {
-    // Action L4 is blocked when ceiling is L3
-    const check1 = isActionAllowed("submit_post", "L3", false);
-    expect(check1.allowed).toBe(false);
+    expect(isActionAllowed("submit_post", "L3", false).allowed).toBe(false);
+    expect(isActionAllowed("draft_reply", "L3", false).allowed).toBe(true);
+    expect(isActionAllowed("submit_post", "L4", false).allowed).toBe(false);
+    expect(isActionAllowed("submit_post", "L4", true).allowed).toBe(true);
+    expect(isActionAllowed("captcha_solving", "L5", true).allowed).toBe(false);
+  });
 
-    // Action L2 is allowed when ceiling is L3
-    const check2 = isActionAllowed("draft_reply", "L3", false);
-    expect(check2.allowed).toBe(true);
+  it("should reject L4 task ceilings while public writes are disabled", () => {
+    const engine = new PolicyEngine(false);
+    expect(() => engine.validateTaskPolicies({ ...baseTask, risk_ceiling: "L4" })).toThrow(/ENABLE_PUBLIC_WRITE is false/);
+  });
 
-    // Action L4 is blocked if public write is disabled globally
-    const check3 = isActionAllowed("submit_post", "L4", false);
-    expect(check3.allowed).toBe(false);
-
-    // Action L4 is allowed if public write is enabled globally
-    const check4 = isActionAllowed("submit_post", "L4", true);
-    expect(check4.allowed).toBe(true);
-
-    // Action L5 is always blocked
-    const check5 = isActionAllowed("captcha_solving", "L5", true);
-    expect(check5.allowed).toBe(false);
+  it("should reject prohibited automation constraints", () => {
+    const engine = new PolicyEngine(false);
+    expect(() => engine.validateTaskPolicies({
+      ...baseTask,
+      constraints: { ...baseTask.constraints, auto_dm: true }
+    })).toThrow(/prohibited automation|blocked/);
   });
 });
 

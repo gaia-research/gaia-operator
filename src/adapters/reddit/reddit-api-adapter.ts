@@ -1,153 +1,134 @@
 import { RedditThread, RedditComment } from "./reddit-types.js";
+import { BlockedSessionError } from "../../core/errors.js";
+
+function getTransparentUserAgent(): string {
+  return process.env.GAIA_OPERATOR_USER_AGENT ||
+    "GaiaOperator/0.1.0 (+https://github.com/gaia-research/gaia-operator; public-community-research; contact=unset)";
+}
 
 export class RedditApiAdapter {
   private userAgent: string;
 
   constructor() {
-    this.userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 (GaiaOperator/0.1.0)";
+    this.userAgent = getTransparentUserAgent();
   }
 
   async searchThreads(query: string, limit = 5): Promise<RedditThread[]> {
+    const cleanLimit = Math.max(1, Math.min(limit, 25));
+    const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=${cleanLimit}&sort=relevance&type=link`;
+
     try {
-      const url = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=${limit}`;
       const response = await fetch(url, {
         headers: {
-          "User-Agent": this.userAgent
+          "User-Agent": this.userAgent,
+          "Accept": "application/json"
         }
       });
 
-      if (!response.ok) {
-        console.warn(`[RedditApiAdapter] API request failed with status ${response.status}. Falling back to mock data.`);
-        return this.getMockThreads(query);
+      if (response.status === 429) {
+        throw new BlockedSessionError(
+          "Reddit public JSON endpoint returned HTTP 429 rate limit. Gaia Operator stopped instead of retrying aggressively.",
+          "rate_limit",
+          url
+        );
       }
 
-      const json = await response.json() as any;
-      if (!json.data || !json.data.children) {
-        return this.getMockThreads(query);
+      if (response.status === 401 || response.status === 403) {
+        throw new BlockedSessionError(
+          `Reddit public JSON endpoint returned HTTP ${response.status}. Gaia Operator stopped instead of bypassing access controls.`,
+          "human_verification",
+          url
+        );
       }
 
-      const threads: RedditThread[] = json.data.children.map((child: any) => {
-        const d = child.data;
-        return {
-          id: d.id,
-          title: d.title,
-          subreddit: d.subreddit,
-          selftext: d.selftext || "",
-          score: d.score,
-          url: `https://www.reddit.com${d.permalink}`,
-          author: d.author,
-          num_comments: d.num_comments,
-          created_utc: d.created_utc
-        };
-      });
-
-      return threads;
-    } catch (err: any) {
-      console.warn(`[RedditApiAdapter] Error during search: ${err.message}. Falling back to mock data.`);
-      return this.getMockThreads(query);
-    }
-  }
-
-  async getComments(threadId: string, subreddit: string): Promise<RedditComment[]> {
-    try {
-      const url = `https://www.reddit.com/r/${subreddit}/comments/${threadId}.json`;
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": this.userAgent
-        }
-      });
-
       if (!response.ok) {
+        console.warn(`[RedditApiAdapter] API request failed with status ${response.status}. Returning no results without mock fallback.`);
         return [];
       }
 
       const json = await response.json() as any;
-      if (!Array.isArray(json) || json.length < 2 || !json[1].data || !json[1].data.children) {
+      if (!json.data || !Array.isArray(json.data.children)) {
         return [];
       }
 
-      const comments: RedditComment[] = json[1].data.children
-        .filter((child: any) => child.kind === "t1")
+      return json.data.children
+        .filter((child: any) => child?.kind === "t3" && child?.data?.permalink)
         .map((child: any) => {
           const d = child.data;
           return {
-            id: d.id,
-            author: d.author,
-            body: d.body || "",
-            score: d.score,
-            created_utc: d.created_utc
-          };
+            id: String(d.id),
+            title: String(d.title || "Untitled Reddit thread"),
+            subreddit: String(d.subreddit || "unknown"),
+            selftext: String(d.selftext || ""),
+            score: Number(d.score || 0),
+            url: `https://www.reddit.com${d.permalink}`,
+            author: String(d.author || "unknown"),
+            num_comments: Number(d.num_comments || 0),
+            created_utc: Number(d.created_utc || 0)
+          } satisfies RedditThread;
         });
+    } catch (err: any) {
+      if (err instanceof BlockedSessionError) {
+        throw err;
+      }
 
-      return comments;
-    } catch {
+      const failOnNetworkError = process.env.GAIA_OPERATOR_FAIL_ON_NETWORK_ERROR === "true";
+      const message = err?.message || String(err);
+
+      if (failOnNetworkError) {
+        throw err;
+      }
+
+      console.warn(`[RedditApiAdapter] Network/API error for query '${query}': ${message}. Returning no results without mock fallback.`);
       return [];
     }
   }
 
-  private getMockThreads(query: string): RedditThread[] {
-    // Generate mock threads based on standard developer pain points related to browser automation
-    return [
-      {
-        id: "mock1",
-        title: "Reddit blocking standard browser agents with CAPTCHA",
-        subreddit: "node",
-        selftext: `I am trying to run a standard Playwright script to fetch some public Reddit threads for research, and it gets hit by a CAPTCHA instantly. I am using standard chromium launch. How do we bypass this?`,
-        score: 45,
-        url: "https://www.reddit.com/r/node/comments/mock1",
-        author: "dev_struggle_99",
-        num_comments: 12,
-        created_utc: Date.now() / 1000 - 86400,
-        comments: [
-          {
-            id: "c1",
-            author: "playwright_pro",
-            body: "Reddit is actively increasing security checks on automated bots. Try using official APIs first as they are much more reliable.",
-            score: 18,
-            created_utc: Date.now() / 1000 - 80000
-          }
-        ]
-      },
-      {
-        id: "mock2",
-        title: "Playwright MCP server accessibility snapshots",
-        subreddit: "LanguageTechnology",
-        selftext: `Has anyone integrated the new Playwright Model Context Protocol (MCP) server? It lets LLMs inspect accessibility trees instead of relying on vision/screenshots which saves so many tokens.`,
-        score: 88,
-        url: "https://www.reddit.com/r/LanguageTechnology/comments/mock2",
-        author: "ai_engineer_alpha",
-        num_comments: 5,
-        created_utc: Date.now() / 1000 - 172800,
-        comments: [
-          {
-            id: "c2",
-            author: "agent_developer",
-            body: "Yes! Accessibility trees are much more stable than raw screenshot vision loops. Strongly recommend it for LLM-driven browser navigation.",
-            score: 12,
-            created_utc: Date.now() / 1000 - 160000
-          }
-        ]
-      },
-      {
-        id: "mock3",
-        title: "Hermes CUA macOS setup issues",
-        subreddit: "artificial",
-        selftext: `Trying to run Hermes computer-use agent on my macOS. Keep hitting issues with Accessibility and Screen Recording permissions. What should I check?`,
-        score: 30,
-        url: "https://www.reddit.com/r/artificial/comments/mock3",
-        author: "mac_user_newbie",
-        num_comments: 8,
-        created_utc: Date.now() / 1000 - 43200,
-        comments: [
-          {
-            id: "c3",
-            author: "hermes_user",
-            body: "Try running 'hermes computer-use doctor' command in your terminal. It triages setup permissions and resolves CUA setup failures immediately.",
-            score: 15,
-            created_utc: Date.now() / 1000 - 40000
-          }
-        ]
+  async getComments(threadId: string, subreddit: string): Promise<RedditComment[]> {
+    const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/comments/${encodeURIComponent(threadId)}.json`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": this.userAgent,
+          "Accept": "application/json"
+        }
+      });
+
+      if (response.status === 429) {
+        throw new BlockedSessionError(
+          "Reddit comments endpoint returned HTTP 429 rate limit. Gaia Operator stopped instead of retrying aggressively.",
+          "rate_limit",
+          url
+        );
       }
-    ];
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const json = await response.json() as any;
+      if (!Array.isArray(json) || json.length < 2 || !json[1]?.data?.children) {
+        return [];
+      }
+
+      return json[1].data.children
+        .filter((child: any) => child.kind === "t1")
+        .map((child: any) => {
+          const d = child.data;
+          return {
+            id: String(d.id),
+            author: String(d.author || "unknown"),
+            body: String(d.body || ""),
+            score: Number(d.score || 0),
+            created_utc: Number(d.created_utc || 0)
+          } satisfies RedditComment;
+        });
+    } catch (err: any) {
+      if (err instanceof BlockedSessionError) {
+        throw err;
+      }
+      return [];
+    }
   }
 }

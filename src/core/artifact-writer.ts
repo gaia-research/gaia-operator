@@ -15,7 +15,6 @@ export class ArtifactWriter {
     const tracePath = path.join(taskDir, "trace.json");
     fs.writeFileSync(tracePath, JSON.stringify(trace, null, 2), "utf-8");
 
-    // Also copy trace to global traces directory
     const globalTracePath = path.join(this.store.getTracesDir(), `${taskId}_trace.json`);
     fs.writeFileSync(globalTracePath, JSON.stringify(trace, null, 2), "utf-8");
 
@@ -33,18 +32,17 @@ export class ArtifactWriter {
   writeOpportunitiesCsv(taskId: string, opportunities: InteractionOpportunity[]): string {
     const taskDir = this.store.getArtifactsDir(taskId);
     const filePath = path.join(taskDir, "opportunities.csv");
-    
+
     const headers = "id,finding_id,target_url,community,nova_voice_status,risk_level,approval_required\n";
     const rows = opportunities.map(o => {
-      // Escape commas and quotes for CSV
       const escape = (val: string) => `"${val.replace(/"/g, '""')}"`;
       return [
-        o.id,
-        o.finding_id,
+        escape(o.id),
+        escape(o.finding_id),
         escape(o.target_url),
         escape(o.community),
-        o.nova_voice_status,
-        o.risk_level,
+        escape(o.nova_voice_status),
+        escape(o.risk_level),
         o.approval_required ? "true" : "false"
       ].join(",");
     }).join("\n");
@@ -58,6 +56,7 @@ export class ArtifactWriter {
     const filePath = path.join(taskDir, "draft-replies.md");
 
     let markdown = `# Draft Replies for Task: ${taskId}\n\n`;
+    markdown += `Public posting is disabled in the MVP. Treat every reply below as private review material until a human approves exact text and target.\n\n`;
 
     if (opportunities.length === 0) {
       markdown += "_No draft replies generated._\n";
@@ -91,23 +90,7 @@ export class ArtifactWriter {
     const taskDir = this.store.getArtifactsDir(taskId);
     const filePath = path.join(taskDir, "blocked-state.md");
 
-    const markdown = `# Blocked State Report\n
-- **Task ID:** ${blocked.task_id}
-- **Platform:** ${blocked.platform}
-- **Block Type:** ${blocked.block_type}
-- **URL:** ${blocked.url || "N/A"}
-- **Action Taken:** ${blocked.action_taken}
-- **Public Actions Taken:** ${blocked.public_actions_taken}
-
-## Description
-${blocked.description}
-
-## Recommended Human Action
-${blocked.recommended_human_action}
-
-## Evidence References
-${blocked.evidence_refs.map(ref => `- ${ref}`).join("\n")}
-`;
+    const markdown = `# Blocked State Report\n\n- **Task ID:** ${blocked.task_id}\n- **Platform:** ${blocked.platform}\n- **Block Type:** ${blocked.block_type}\n- **URL:** ${blocked.url || "N/A"}\n- **Action Taken:** ${blocked.action_taken}\n- **Public Actions Taken:** ${blocked.public_actions_taken}\n\n## Description\n${blocked.description}\n\n## Recommended Human Action\n${blocked.recommended_human_action}\n\n## Evidence References\n${blocked.evidence_refs.length > 0 ? blocked.evidence_refs.map(ref => `- ${ref}`).join("\n") : "_No evidence references captured._"}\n`;
 
     fs.writeFileSync(filePath, markdown, "utf-8");
     return filePath;
@@ -118,28 +101,35 @@ ${blocked.evidence_refs.map(ref => `- ${ref}`).join("\n")}
     const filePath = path.join(taskDir, "approval-request.md");
 
     let markdown = `# Approval Request\n\n`;
-    markdown += `Please review the following proposed actions for task **${taskId}**. Public interaction is gated and requires explicit human approval.\n\n`;
+    markdown += `Review the proposed draft-only actions for task **${taskId}**. Gaia Operator did not post, message, vote, join, or publish anything.\n\n`;
 
     for (const opt of opportunities) {
       markdown += `## Request ID: ${opt.id}\n`;
       markdown += `- **Target Platform:** Reddit\n`;
       markdown += `- **Target URL:** ${opt.target_url}\n`;
       markdown += `- **Risk Level:** ${opt.risk_level}\n`;
-      markdown += `- **Voice Status:** ${opt.nova_voice_status}\n\n`;
-      
+      markdown += `- **Voice Status:** ${opt.nova_voice_status}\n`;
+      markdown += `- **Approval Required:** ${opt.approval_required ? "YES" : "NO"}\n\n`;
+
       markdown += `### Proposed Text\n`;
       markdown += `\`\`\`text\n${opt.draft_reply || ""}\n\`\`\`\n\n`;
 
-      markdown += `### Why This Is Helpful & Not Spam\n`;
+      markdown += `### Why This May Be Helpful\n`;
       markdown += `- **User Need Addressed:** ${opt.user_need}\n`;
-      markdown += `- **Suggested Angle:** ${opt.suggested_angle}\n`;
-      markdown += `- **Community Rules Checked:** Subreddit rules verified; reply matches constraints.\n\n`;
+      markdown += `- **Suggested Angle:** ${opt.suggested_angle}\n\n`;
+
+      markdown += `### Required Human Checks Before Public Use\n`;
+      markdown += `- [ ] Confirm subreddit/community rules manually.\n`;
+      markdown += `- [ ] Confirm the reply is useful without any Gaia link.\n`;
+      markdown += `- [ ] Confirm this is not duplicative of another planned reply.\n`;
+      markdown += `- [ ] Confirm no login, CAPTCHA, rate-limit, or account warning is present.\n`;
+      markdown += `- [ ] Confirm exact text and target URL are approved.\n\n`;
 
       markdown += `### Options\n`;
-      markdown += `- [ ] **Approve as-is**\n`;
-      markdown += `- [ ] **Approve with edits**\n`;
-      markdown += `- [ ] **Reject**\n`;
-      markdown += `- [ ] **Needs more research**\n\n`;
+      markdown += `- [ ] Approve as-is\n`;
+      markdown += `- [ ] Approve with edits\n`;
+      markdown += `- [ ] Reject\n`;
+      markdown += `- [ ] Needs more research\n\n`;
       markdown += `---\n\n`;
     }
 
