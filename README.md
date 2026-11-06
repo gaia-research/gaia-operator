@@ -163,7 +163,13 @@ Hermes must not:
 * Use CUA to sneak around browser or platform restrictions
 
 The MVP rule is:
-> **Gaia Operator may observe, extract, draft, and prepare evidence. A human approves public action.**
+> **Gaia Operator may observe, extract, draft, and prepare evidence. A human performs public submission for Operator workflows.**
+
+A separately operator-authorized, interactive marketing-tasks `/auto` session is
+not a Gaia Operator run and may follow its own reviewed browser-publishing
+contract. It must not execute a prohibited Operator task or be used as an
+Operator L4 bypass; it grants no unattended capability. See
+[the safety model](docs/safety-model.md#boundary-for-separate-interactive-marketing-publication).
 
 ### Expected Artifacts
 

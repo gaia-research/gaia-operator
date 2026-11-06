@@ -32,7 +32,7 @@ Use the queue entry frontmatter as the source of truth. The runtime treats these
 
 If a field is missing, the runtime applies safe MVPs defaults:
 - `reddit` defaults to `research_and_draft`
-- public writes are disabled unless a later approved L4 flow is explicitly enabled
+- public writes are disabled in Operator MVP workflows; a human performs submission
 - approval is required for draft outputs
 
 ## Step 3: Validate the Derived Task
