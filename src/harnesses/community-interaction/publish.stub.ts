@@ -1,3 +1,3 @@
 export function publishStubAction(): never {
-  throw new Error("Publish is blocked in MVP-1. All public writes require direct human interaction.");
+  throw new Error("Publish is blocked in Gaia Operator MVP-1. Public writes in Operator workflows require direct human interaction.");
 }

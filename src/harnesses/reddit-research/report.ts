@@ -88,7 +88,7 @@ export class RedditReportBuilder {
     if (opportunities.length > 0) {
       md += `1. Review \`draft-replies.md\` and \`approval-request.md\` if present.\n`;
       md += `2. Confirm subreddit rules manually before any public interaction.\n`;
-      md += `3. Post manually or through a separately approved L4 flow only after exact-text approval.\n`;
+      md += `3. A human may post manually after exact-text approval; Operator MVP does not submit public writes.\n`;
     } else {
       md += `1. Refine target search queries in the task file.\n`;
       md += `2. Re-run in observe-only mode if the platform appears sensitive or rate-limited.\n`;

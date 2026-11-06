@@ -7,7 +7,7 @@
 - **Risk Ceiling Used:** L3
 - **Status:** COMPLETED
 
-This report lists AI agent and browser automation pain points extracted from Reddit discussion threads.
+**Synthetic example:** all findings, quotations, scores and URLs below are fabricated placeholders, not evidence of an observed Reddit discussion.
 
 ## Platforms Inspected
 - **REDDIT** (using safe access protocols)
@@ -32,4 +32,4 @@ Reddit's anti-bot measures are quite active. A safe way to operate is to impleme
 
 ## Recommended Next Actions
 1. Review the generated draft replies in `draft-replies.md`.
-2. If any draft is acceptable, complete manual posting or request L4 publish approval.
+2. For a real Operator task, a human may post an approved draft manually. Operator MVP does not submit public writes.
