@@ -52,9 +52,10 @@ approval or selects a stronger credential.
   formatted, so a pattern cannot consume neighbouring CSV cells or approval
   lines. Reddit excerpts are redacted before truncation.
 - Untrusted single-line fields (titles, communities, URLs) are collapsed to
-  one line in approval cards, draft cards and `report.md`; drafts are fenced, excerpts are blockquoted line by line with a fence
-  longer than any backtick run inside it, and CSV cells are neutralised against
-  spreadsheet formula injection. Content cannot forge a checked approval box.
+  one line in approval cards, draft cards and `report.md`. Draft text is
+  fenced with a fence longer than any backtick run inside it, excerpts are
+  blockquoted line by line, and CSV cells are neutralised against spreadsheet
+  formula injection. Content cannot forge a checked approval box.
 - Redaction is defence in depth, not permission to publish an artifact unread.
   Screenshots are not redacted; review them before sharing.
 
