@@ -126,6 +126,7 @@ function isNonPublicIPv6(h: number[]): boolean {
   if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0)) {
     return isNonPublicIPv4(embeddedV4());                                     // NAT64 64:ff9b::/96
   }
+  if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return true;            // local-use NAT64 64:ff9b:1::/48
   if (h[0] === 0x0100 && h.slice(1, 4).every((x) => x === 0)) return true; // 100::/64 discard
   if ((h[0] & 0xfe00) === 0xfc00) return true;  // fc00::/7 unique local
   if ((h[0] & 0xffc0) === 0xfe80) return true;  // fe80::/10 link-local
@@ -159,20 +160,22 @@ const PLATFORM_PRIVATE_ROUTES: Array<{ domains: string[]; rule: RouteRule }> = [
     domains: ["reddit.com"],
     rule: (seg) =>
       first(["message", "messages", "settings", "prefs", "account", "chat", "notifications", "inbox", "login", "register"])(seg) ||
-      (seg[0] === "user" && ["saved", "hidden", "upvoted", "downvoted"].includes(seg[2] ?? ""))
+      ((seg[0] === "user" || seg[0] === "u") && ["saved", "hidden", "upvoted", "downvoted"].includes(seg[2] ?? ""))
   },
-  { domains: ["x.com", "twitter.com"], rule: (seg) => first(["messages", "settings", "notifications", "login", "account"])(seg) || (seg[0] === "i" && ["bookmarks", "notifications", "flow", "account_access"].includes(seg[1] ?? "")) },
+  { domains: ["x.com", "twitter.com"], rule: (seg) => first(["messages", "settings", "notifications", "login", "account"])(seg) || (seg[0] === "i" && ["bookmarks", "notifications", "flow", "account_access", "chat", "messages"].includes(seg[1] ?? "")) },
   { domains: ["linkedin.com"], rule: first(["messaging", "settings", "psettings", "notifications", "mynetwork", "login", "checkpoint"]) },
   { domains: ["github.com"], rule: first(["settings", "notifications", "login", "sessions"]) },
   { domains: ["discord.com", "discordapp.com"], rule: (seg) => (seg[0] === "channels" && seg[1] === "@me") || first(["login", "settings"])(seg) },
   { domains: ["youtube.com"], rule: (seg) => first(["account"])(seg) || (seg[0] === "feed" && ["history", "library", "subscriptions"].includes(seg[1] ?? "")) },
-  { domains: ["ycombinator.com"], rule: first(["login", "threads"]) }
+  { domains: ["ycombinator.com"], rule: first(["login"]) }
 ];
 
 export function isPrivateAccountUrl(raw: string): boolean {
   let segments: string[];
   try {
-    segments = new URL(raw).pathname.toLowerCase().split("/").filter(Boolean);
+    // pathname is not percent-decoded ("/%6Dessage/inbox"); decode each
+    // segment, and treat an undecodable one as private (fail closed).
+    segments = new URL(raw).pathname.split("/").filter(Boolean).map((segment) => decodeURIComponent(segment).toLowerCase());
   } catch {
     return true;
   }

@@ -2,6 +2,7 @@ import { PlaywrightAdapter } from "../../adapters/browser/playwright-adapter.js"
 import { OperatorTask, Finding, BlockedState } from "../../core/types.js";
 import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockDetector } from "../../core/block-detector.js";
+import { BlockedSessionError } from "../../core/errors.js";
 import { checkNavigableUrl, isPrivateAccountUrl } from "../../policies/url-policy.js";
 import { inlineText } from "../../core/safe-text.js";
 
@@ -51,7 +52,15 @@ export function visibleText(html: string): string {
 // 429 interstitial phrase in the title or visible text. (Cloudflare's
 // "/cdn-cgi/challenge-platform/scripts/jsd/" bot-detection script is injected
 // into ordinary pages and is not a challenge; only the "/h/" orchestrator is.)
-const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)|\/cdn-cgi\/challenge-platform\/h\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
+// Strong signals hold on a page of any length: Cloudflare's challenge
+// orchestrator / challenge form, or a title that IS an interstitial title
+// (exact match, so an article titled "Handling HTTP 429" is not one).
+const STRONG_CHALLENGE_MARKUP = /\/cdn-cgi\/challenge-platform\/h\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
+const INTERSTITIAL_TITLE = /^\s*(attention required!? \| cloudflare|just a moment\.\.\.|verifying you are human\.?|access denied|are you a robot\??)\s*$/i;
+const RATE_LIMIT_TITLE = /^\s*(429 too many requests|too many requests|error 429[^a-z]*)\s*$/i;
+// Weak signals count only on a near-empty page: widgets also sit on ordinary
+// contact/comment forms, and phrases also appear in articles.
+const WEAK_CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)/i;
 const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b|^\s*just a moment\.\.\./i;
 const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
 
@@ -61,15 +70,22 @@ export function detectGenericBlock(
   html: string,
   title: string
 ): { blockType: BlockedState["block_type"]; description: string } | null {
+  if (STRONG_CHALLENGE_MARKUP.test(html) || INTERSTITIAL_TITLE.test(title)) {
+    return { blockType: "captcha", description: "CAPTCHA or human-verification challenge detected." };
+  }
+  if (RATE_LIMIT_TITLE.test(title)) {
+    return { blockType: "rate_limit", description: "Rate-limit (429) page detected." };
+  }
+
   // Interstitials are near-empty pages. A page with substantial visible text
-  // (an article titled "Handling HTTP 429", a contact form with a reCAPTCHA
+  // (an article mentioning "HTTP 429", a contact form with a reCAPTCHA
   // widget) is content, not a block.
   const visible = visibleText(html).trim();
   if (visible.length > INTERSTITIAL_MAX_TEXT) {
     return null;
   }
   const text = `${title} ${visible}`;
-  if (CHALLENGE_MARKUP.test(html) || CHALLENGE_PHRASES.test(text)) {
+  if (WEAK_CHALLENGE_MARKUP.test(html) || CHALLENGE_PHRASES.test(text)) {
     return { blockType: "captcha", description: "CAPTCHA or human-verification challenge detected." };
   }
   if (RATE_LIMIT_PHRASES.test(text)) {
@@ -179,6 +195,22 @@ export class GenericBrowserHarness {
           evidence_refs: result.screenshotPath ? [result.screenshotPath] : []
         });
       } catch (err: any) {
+        // A refused redirect (login/account route, private host, origin
+        // change) is a blocked state: stop the run with human guidance.
+        if (err instanceof BlockedSessionError) {
+          const block = BlockDetector.forType(
+            task.id,
+            platform,
+            err.blockType as BlockedState["block_type"],
+            err.message,
+            url
+          );
+          if (err.screenshotPath) block.evidence_refs.push(err.screenshotPath);
+          blockedState = block;
+          stoppedAt = url;
+          traceRecorder.recordStep("generic_browser_blocked", "generic", "L0", { url }, { blockType: block.block_type });
+          break;
+        }
         failed.push(url);
         traceRecorder.recordStep(
           "generic_browser_failed",

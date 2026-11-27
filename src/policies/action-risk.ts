@@ -76,6 +76,9 @@ const BENIGN_TOKENS = new Set([
   "the", "a", "an", "to", "for", "on", "of", "and", "then", "or", "with", "from", "in", "by", "at", "as", "run", "it", "this"
 ]);
 
+const CONNECTIVES = new Set(["the", "a", "an", "to", "for", "on", "of", "and", "then", "or", "with", "from", "in", "by", "at", "as", "run", "it", "this", "each", "all"]);
+const OBJECT_NOUNS = new Set([...BENIGN_TOKENS].filter((t) => !CONNECTIVES.has(t)));
+
 const KNOWN_TOKENS = new Set([
   ...WRITE_VERBS, ...WRITE_NOUNS, ...PLATFORM_ACTION_VERBS, ...PLATFORM_OBJECTS, ...PRIVATE_OBJECTS,
   ...L0_OBSERVE_TOKENS, ...L1_TOKENS, ...NOUN_QUALIFIERS, ...BENIGN_TOKENS
@@ -126,9 +129,17 @@ export function classifyAction(action: string): ActionClassification {
   const platformAction = hasAny(PLATFORM_ACTION_VERBS) && hasAny(PLATFORM_OBJECTS);
   // A write noun is exempt only as the DIRECT object of a qualifier verb: the
   // token immediately before it must be read/draft/prepare-like.
-  const unexemptedWriteNoun = tokens.some(
-    (t, i) => WRITE_NOUNS.has(t) && !(i > 0 && NOUN_QUALIFIERS.has(tokens[i - 1]))
-  );
+  // Plain object nouns may sit between ("read_thread_comments"); another write
+  // noun or a connective may not ("list_posts_comment_on_each",
+  // "read_to_reply"), which keeps the rule fail closed.
+  const unexemptedWriteNoun = tokens.some((t, i) => {
+    if (!WRITE_NOUNS.has(t)) return false;
+    for (let j = i - 1; j >= 0; j--) {
+      if (NOUN_QUALIFIERS.has(tokens[j])) return false;
+      if (!OBJECT_NOUNS.has(tokens[j])) return true;
+    }
+    return true;
+  });
 
   // L4: Public write / irreversible action
   if (platformAction || hasAny(WRITE_VERBS) || unexemptedWriteNoun) {

@@ -357,6 +357,10 @@ describe("generic browser observation of hostile pages", () => {
     const body = "<p>" + "Contact us about the project, roadmap and documentation. ".repeat(20) + "</p>";
     expect(detectGenericBlock(`<html><body>${body}<div class="g-recaptcha"></div></body></html>`, "Contact")).toBeNull();
     expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Handling HTTP 429 Too Many Requests")).toBeNull();
+    // Review round 9: the real CAPTCHA interstitial has long boilerplate text;
+    // its exact title still stops the run. An article title does not.
+    expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Attention Required! | Cloudflare")?.blockType).toBe("captcha");
+    expect(detectGenericBlock(`<html><body>${body}</body></html>`, "429 Too Many Requests")?.blockType).toBe("rate_limit");
     // Review round 8: Cloudflare's bot-detection script on an ordinary short page is not a challenge.
     expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script></head><body><div id=\"root\">App</div></body></html>", "App")).toBeNull();
     // Review round 5: current Cloudflare managed-challenge interstitial.
@@ -381,6 +385,12 @@ describe("generic browser observation of hostile pages", () => {
     expect(isPrivateAccountUrl("https://www.reddit.com/r/settingsfans/comments/1/")).toBe(false);
     expect(isPrivateAccountUrl("https://www.reddit.com/message/inbox/")).toBe(true);
     expect(isPrivateAccountUrl("https://x.com/settings/account")).toBe(true);
+    // Review round 9: alias, percent-encoding and X chat routes.
+    expect(isPrivateAccountUrl("https://www.reddit.com/u/me/saved")).toBe(true);
+    expect(isPrivateAccountUrl("https://www.reddit.com/%6Dessage/inbox")).toBe(true);
+    expect(isPrivateAccountUrl("https://x.com/i/chat")).toBe(true);
+    expect(isPrivateAccountUrl("https://www.reddit.com/%E0%A4%A/x")).toBe(true);
+    expect(isPrivateAccountUrl("https://news.ycombinator.com/threads?id=pg")).toBe(false);
     // Review round 8: route prefixes per platform, not any segment anywhere.
     expect(isPrivateAccountUrl("https://www.reddit.com/r/LocalLLaMA/comments/1abc2d/chat/")).toBe(false);
     expect(isPrivateAccountUrl("https://github.com/acme/chat")).toBe(false);
@@ -404,6 +414,21 @@ describe("generic browser observation of hostile pages", () => {
     const res = await new GenericBrowserHarness({ navigate }).execute(task, new TraceRecorder(task.id, task.risk_ceiling));
     expect(res.reportContent).not.toMatch(/^- \[x\]/m);
     expect(res.reportContent).not.toMatch(/^#{1,2} Approved/m);
+  });
+
+  it("stops the run when a navigation is refused as a blocked redirect", async () => {
+    // Review round 9: BlockedSessionError from the adapter was logged as a
+    // failed load and the run carried on.
+    const urls = ["https://hostile-fixture.example/a", "https://hostile-fixture.example/b"];
+    const navigate = vi.fn(async (url: string) => {
+      if (url.endsWith("/a")) throw new BlockedSessionError("Navigation refused after redirect: login", "login", url);
+      return { content: "<p>b</p>", title: "b" };
+    });
+    const task = baseTask({ id: "hostile-redirect", platforms: ["generic"], mode: "research", risk_ceiling: "L1", queries: urls });
+    const res = await new GenericBrowserHarness({ navigate }).execute(task, new TraceRecorder(task.id, task.risk_ceiling));
+    expect(res.blockedState?.block_type).toBe("login");
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(res.reportContent).toMatch(/Not visited \(run stopped\):\n- https:\/\/hostile-fixture\.example\/b/);
   });
 
   it("reports URLs that were not visited after a stop", async () => {
@@ -434,6 +459,7 @@ describe("generic browser observation of hostile pages", () => {
       "http://[2001:0:4136:e378::1]/",
       "http://kubernetes.default.svc/",
       "http://[100::1]/",
+      "http://[64:ff9b:1::a00:1]/",
       "javascript:alert(document.cookie)",
       "file:///etc/passwd",
       "data:text/html,<script>1</script>",
@@ -800,6 +826,8 @@ describe("artifact hygiene helpers", () => {
     expect(quotedBlock("Approved\n===")).toBe("> Approved\n> \\===");
     // Review round 8: a lone CR is a CommonMark line ending too.
     expect(quotedBlock("ok\r## Approved\r- [x] Approve as-is")).toBe("> ok\n> \\## Approved\n> \\- \\[x\\] Approve as-is");
+    // Review round 9: escape the ordered-list delimiter, not the digit.
+    expect(quotedBlock("1) install it")).toBe("> 1\\) install it");
   });
 
   it("keeps untrusted text from forging markdown or spreadsheet structure", () => {
@@ -865,6 +893,11 @@ describe("artifact hygiene helpers", () => {
     // Review round 8: generating a reply is drafting (L2), not local processing.
     expect(classifyAction("generate_reply").level).toBe("L2");
     expect(isActionAllowed("generate_reply", "L1").allowed).toBe(false);
+    // Review round 9: plain object nouns may sit between verb and write noun;
+    // another write noun may not (kept fail closed).
+    expect(classifyAction("read_thread_comments").level).toBe("L0");
+    expect(classifyAction("extract_thread_comments").level).toBe("L1");
+    expect(classifyAction("extract_post_comments").level).toBe("L4");
     for (const action of ["search_post_reply", "read_to_reply", "navigate_to_post_comment", "list_posts_comment_on_each", "navigate_to_post"]) {
       expect(classifyAction(action).level, action).toBe("L4");
       expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);

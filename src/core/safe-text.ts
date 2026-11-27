@@ -42,7 +42,9 @@ export function quotedBlock(value: string | undefined): string {
     .split(/\r\n|\r|\n|\u2028|\u2029/)
     // Escape block markers, and setext underlines (=== / ---) that would turn
     // the previous line into a heading.
-    .map((line) => `> ${line.replace(/^(\s*)([#>]|[-*+]\s|\d+[.)]\s|=+\s*$|-+\s*$)/, "$1\\$2")}`)
+    .map((line) => `> ${line
+      .replace(/^(\s*)([#>]|[-*+]\s|=+\s*$|-+\s*$)/, "$1\\$2")
+      .replace(/^(\s*\d+)([.)])(\s)/, "$1\\$2$3")}`)
     .join("\n");
 }
 
