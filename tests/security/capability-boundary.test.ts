@@ -292,6 +292,23 @@ describe("generic browser observation of hostile pages", () => {
     await expect(new PlaywrightAdapter().navigate("http://10.0.0.5/", sandbox)).rejects.toThrow(/Navigation refused/);
   });
 
+  it("tolerates same-origin URL rewrites during capture", async () => {
+    // Review round 7: history.replaceState/hash changes are not a refusal.
+    const urls = ["https://hostile-fixture.example/search?q=x", "https://hostile-fixture.example/search?q=x&ref=1#top"];
+    let calls = 0;
+    const fakePage = {
+      goto: vi.fn(async () => undefined),
+      url: () => urls[Math.min(calls++, urls.length - 1)],
+      content: vi.fn(async () => "<html>ok</html>"),
+      title: vi.fn(async () => "ok"),
+      screenshot: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const adapter = new PlaywrightAdapter();
+    (adapter as any).context = { newPage: async () => fakePage };
+    await expect(adapter.navigate("https://hostile-fixture.example/search?q=x")).resolves.toMatchObject({ title: "ok" });
+  });
+
   it("discards captures if the page navigates during capture", async () => {
     // Review round 6: meta-refresh/JS navigation between the check and the capture.
     // First page.url() (before capture) is public; the second (after capture)
@@ -521,6 +538,15 @@ describe("queue entries cannot widen authority", () => {
     const other = path.join(dir, "launch idea [v2].md");
     fs.writeFileSync(other, "---\ntitle: No id\nchannel: docs\n---\nResearch body text.\n");
     expect(QueueEntryAdapter.parseFile(other).id).not.toBe(task.id);
+    // ...including through truncation of long safe names.
+    const stem = "a".repeat(125);
+    const [la, lb] = ["-a", "-b"].map((suffix) => {
+      const f = path.join(dir, `${stem}${suffix}.md`);
+      fs.writeFileSync(f, "---\ntitle: No id\nchannel: docs\n---\nResearch body text.\n");
+      return QueueEntryAdapter.parseFile(f).id;
+    });
+    expect(la).not.toBe(lb);
+    expect(la.length).toBeLessThanOrEqual(128);
   });
 
   async function runQueue(file: string) {
@@ -601,6 +627,12 @@ describe("mobile handoff never opens a hostile target", () => {
       .filter((v) => v.includes("URL"))).toHaveLength(0);
   });
 
+  it("rejects private/account handoff targets", () => {
+    // Review round 7: a handoff must never open a DM compose page.
+    const task = MobileHandoffTaskSchema.parse({ ...baseMobile, target: { url: "https://www.reddit.com/message/compose?to=someone" } });
+    expect(checkGuardrails(task, baseMobile.draft.text).passed).toBe(false);
+  });
+
   it("rejects a traversal id in the mobile task schema", () => {
     expect(MobileHandoffTaskSchema.safeParse({ ...baseMobile, id: "../../escape" }).success).toBe(false);
   });
@@ -674,6 +706,10 @@ describe("artifact hygiene helpers", () => {
     expect(indentedOut).not.toContain("MIIEowIBAAKCAQEA");
     expect(indentedOut).not.toContain("QWERTYfixture");
     expect(indentedOut).toContain("after");
+    // Review round 7: a field ending in a credential word must not swallow
+    // the next line (closing fence, URL line).
+    const tail = PrivacyChecker.filterSensitiveData("```text\nPaste your API token:\n```\n- **URL:** https://www.reddit.com/r/x\nSetting the Authorization:\n- **Risk:** L3");
+    expect(tail).toBe("```text\nPaste your API token:\n```\n- **URL:** https://www.reddit.com/r/x\nSetting the Authorization:\n- **Risk:** L3");
   });
 
   it("redacts credential shapes", () => {
@@ -729,6 +765,8 @@ describe("artifact hygiene helpers", () => {
     expect(inlineText("Need help <!--")).toBe("Need help &lt;!--");
     // Review round 6: no links or remote images from untrusted text.
     expect(inlineText("![x](https://hostile-fixture.example/t.gif)")).toBe("!\\[x\\](https://hostile-fixture.example/t.gif)");
+    // Review round 7: pre-escaped brackets cannot cancel the added escape.
+    expect(inlineText("\\[Approve\\](https://hostile-fixture.example/p)")).toBe("\\\\\\[Approve\\\\\\](https://hostile-fixture.example/p)");
     expect(quotedBlock("Approved\n===")).toBe("> Approved\n> \\===");
   });
 
@@ -783,6 +821,15 @@ describe("artifact hygiene helpers", () => {
     for (const action of ["read_messages_for_draft", "draft_reply_from_inbox", "view_chat_draft", "read_dm", "fetch_dm", "draft_message"]) {
       expect(classifyAction(action).level, action).toBe("L5");
     }
+    // Review round 7: closed vocabulary. An unknown verb anywhere denies the
+    // action; a read verb cannot launder it.
+    for (const action of ["view_and_retweet", "read_then_leave_subreddit", "search_and_star_repo", "list_and_accept_invites", "visit_and_connect", "fetch_and_approve_pr", "read_and_unsubscribe", "summarize_and_tweet"]) {
+      expect(classifyAction(action).recognized, action).toBe(false);
+      expect(isActionAllowed(action, "L3", true).allowed, action).toBe(false);
+    }
+    expect(classifyAction("search_users_to_block").level).toBe("L4");
+    expect(classifyAction("read_inbox_and_send_reply").level).toBe("L5");
+    expect(classifyAction("send_dm").level).toBe("L4");
     for (const action of ["search_post_reply", "read_to_reply", "navigate_to_post_comment", "list_posts_comment_on_each", "navigate_to_post"]) {
       expect(classifyAction(action).level, action).toBe("L4");
       expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);

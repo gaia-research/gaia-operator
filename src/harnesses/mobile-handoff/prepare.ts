@@ -4,7 +4,7 @@ import * as yaml from "js-yaml";
 import { z } from "zod";
 import { MobileHandoffAdapter } from "../../adapters/mobile/mobile-handoff.js";
 import { taskIdSchema } from "../../core/task-loader.js";
-import { checkNavigableUrl, hostMatches } from "../../policies/url-policy.js";
+import { checkNavigableUrl, hostMatches, isPrivateAccountUrl } from "../../policies/url-policy.js";
 
 // Zod Schema matching the Input Contract in the PRD
 export const MobileHandoffTaskSchema = z.object({
@@ -79,6 +79,11 @@ export function checkTargetUrl(task: Pick<MobileHandoffTask, "platform" | "targe
   const hosts = PLATFORM_HOSTS[task.platform];
   if (hosts && !hostMatches(url, hosts)) {
     violations.push(`Platform '${task.platform}' requires a target URL hosted on ${hosts.map(h => `'${h}'`).join(" or ")}.`);
+  }
+  // Public threads only: a handoff must never open a DM compose, inbox or
+  // settings page with the draft on the clipboard.
+  if (isPrivateAccountUrl(url)) {
+    violations.push("Target URL points at private/account content (messages, inbox, settings); handoff targets must be public threads.");
   }
   return violations;
 }

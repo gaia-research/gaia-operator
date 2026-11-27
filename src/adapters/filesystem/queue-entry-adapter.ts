@@ -173,8 +173,9 @@ export class QueueEntryAdapter {
       .replace(/\.{2,}/g, ".")
       .replace(/-{2,}/g, "-")
       .replace(/[-.]+$/, "");
-    if (fallbackId !== rawFallback) {
-      // Distinct filenames must not collapse onto one id (and one artifact dir).
+    if (fallbackId !== rawFallback || fallbackId.length > 128) {
+      // Distinct filenames must not collapse onto one id (and one artifact
+      // dir), whether through sanitising or through truncation.
       const digest = createHash("sha256").update(rawFallback).digest("hex").slice(0, 8);
       fallbackId = `${fallbackId.slice(0, 119)}-${digest}`;
     }

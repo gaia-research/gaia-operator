@@ -14,8 +14,10 @@ import { PrivacyChecker } from "../policies/privacy.js";
 // "<" is escaped so content cannot open an HTML comment or tag that hides the
 // rest of a rendered card; "[" and "]" so it cannot form links or remote
 // images ("![x](https://...)") that load when a reviewer previews the card.
+// Backslashes are escaped first, so pre-escaped input ("\\[") cannot turn
+// the added escape into a literal backslash followed by a live bracket.
 function escapeHtml(text: string): string {
-  return text.replace(/</g, "&lt;").replace(/([\[\]])/g, "\\$1");
+  return text.replace(/\\/g, "\\\\").replace(/</g, "&lt;").replace(/([\[\]])/g, "\\$1");
 }
 
 export function inlineText(value: string | undefined): string {

@@ -3,11 +3,11 @@
 // licence to put secrets into the pipeline in the first place.
 const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   // Authorization header values (whole value, any scheme)
-  [/\b(Authorization|Proxy-Authorization)\s*:\s*[^\r\n]+/gi, "$1: [REDACTED]"],
+  [/\b(Authorization|Proxy-Authorization)[ \t]*:[ \t]*[^\s][^\r\n]*/gi, "$1: [REDACTED]"],
   // Bearer/Basic credentials outside a header: require a token-shaped value
   // (has a digit or base64 punctuation) so prose like "Basic authentication"
   // is left alone.
-  [/\b(Bearer|Basic)\s+(?=[A-Za-z._~-]*[0-9+\/=])[A-Za-z0-9._~+\/=-]{12,}/g, "$1 [REDACTED]"],
+  [/\b(Bearer|Basic)[ \t]+(?=[A-Za-z._~-]*[0-9+\/=])[A-Za-z0-9._~+\/=-]{12,}/g, "$1 [REDACTED]"],
   // GitHub tokens (classic and fine-grained)
   [/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[TOKEN_REDACTED]"],
   // Slack tokens
@@ -27,7 +27,7 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   // Credentials embedded in URLs (scheme://user:pass@host)
   [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/?#@]+@/gi, "$1[REDACTED]@"],
   // Cookie headers
-  [/\b(Cookie|Set-Cookie)\s*:\s*[^\r\n]+/gi, "$1: [REDACTED]"]
+  [/\b(Cookie|Set-Cookie)[ \t]*:[ \t]*[^\s][^\r\n]*/gi, "$1: [REDACTED]"]
 ];
 
 export class PrivacyChecker {
@@ -45,7 +45,7 @@ export class PrivacyChecker {
     // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
     // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b([A-Za-z0-9_-]*?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
+      /\b([A-Za-z0-9_-]*?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)[ \t]*[:=][ \t]*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
       (_m, name: string, quote: string, value: string) => {
         const q = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : "";
         return `${name}${quote}${quote ? ": " : "="}${q}[REDACTED]${q}`;
@@ -55,7 +55,7 @@ export class PrivacyChecker {
     // ":" form only with a token-shaped value, so prose like "The key: use
     // structured state" is untouched.
     scrubbed = scrubbed.replace(/([?&\s]|^)key=[^\s&"]+/gim, "$1key=[REDACTED]");
-    scrubbed = scrubbed.replace(/\b(key)\s*:\s*(?=[^\s&"]*\d)[^\s&"]{12,}/gi, "$1=[REDACTED]");
+    scrubbed = scrubbed.replace(/\b(key)[ \t]*:[ \t]*(?=[^\s&"]*\d)[^\s&"]{12,}/gi, "$1=[REDACTED]");
 
     return scrubbed;
   }

@@ -122,8 +122,11 @@ export class PlaywrightAdapter {
       // and the captures. Re-check, and discard everything if the page moved.
       try {
         const landedAfter = assertLanded("after capture");
-        if (landedAfter !== landedBefore) {
-          throw new Error("Navigation refused: page navigated during capture.");
+        // Same-origin URL rewrites (query/hash/history.replaceState) are
+        // normal; moving to another origin means the capture may not belong
+        // to the page that was checked.
+        if (new URL(landedAfter).origin !== new URL(landedBefore).origin) {
+          throw new Error("Navigation refused: page moved to another origin during capture.");
         }
       } catch (err) {
         if (screenshotPath) fs.rmSync(screenshotPath, { force: true });

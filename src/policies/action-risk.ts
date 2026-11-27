@@ -19,9 +19,11 @@ export interface ActionClassification {
   recognized: boolean;
 }
 
-// Action names are matched as whole "_"/"-"-delimited tokens. Substring
-// matching let "thread_reply" pass as L0 because "thread" contains "read".
-// Concatenations such as "autopost" match nothing and are denied.
+// Action names are matched as whole "_"/"-"-delimited tokens against a CLOSED
+// vocabulary. Any token outside it (an unknown verb such as "retweet",
+// "connect", "click", "approve", or a concatenation such as "autopost") makes
+// the whole action unrecognised, and unrecognised actions are denied. A known
+// read verb elsewhere in the name cannot launder an unknown one.
 
 // Verbs that perform a platform-side write. Present anywhere in the name they
 // make the action L4; no qualifier exempts them ("draft_and_submit_post" is L4).
@@ -30,52 +32,56 @@ const WRITE_VERBS = new Set([
   "unfollow", "subscribe", "vote", "upvote", "downvote", "like", "delete", "award"
 ]);
 
-// Nouns/verbs that are writes on their own ("post", "thread_reply") but are
-// legitimately mentioned by drafting or read-only actions ("draft_reply",
-// "summarize_comments", "read_posts").
+// Nouns/verbs that are writes on their own ("post", "thread_reply") unless
+// they are the direct object of a qualifier verb ("draft_reply").
 const WRITE_NOUNS = new Set([
-  "post", "posts", "reply", "replies", "comment", "comments", "message", "messages"
+  "post", "posts", "reply", "replies", "comment", "comments"
 ]);
 
-// Read-only / local verbs that may legitimately mention a write noun.
-const READ_QUALIFIERS = new Set([
-  "summarize", "read", "extract", "inspect", "classify", "score", "analyze",
-  "view", "list", "search", "fetch", "observe"
-]);
-
-// "report"/"save"/"flag"/"hide"/"block" followed by a platform object is a
-// platform-side action (report a user, save a post), not report generation.
+// "report"/"save"/"flag"/"hide"/"block"/"mute" together with a platform object
+// (either order) is a platform-side action, not report generation.
 const PLATFORM_ACTION_VERBS = new Set(["report", "save", "flag", "hide", "block", "mute"]);
-const PLATFORM_OBJECTS = new Set(["user", "users", "post", "posts", "comment", "comments", "thread", "threads", "account", "content", "message"]);
+const PLATFORM_OBJECTS = new Set([
+  "user", "users", "post", "posts", "comment", "comments", "thread", "threads",
+  "account", "accounts", "content", "community", "communities", "subreddit", "subreddits", "repo", "repos"
+]);
 
-// Verbs that only observe public state. Anything that is not matched by a
-// higher-risk rule AND not matched here is unrecognised and denied.
+// Private objects: any action on them is private scraping (L5) unless the
+// whole name is an explicit send ("send_message", "send_dm").
+const PRIVATE_OBJECTS = new Set([
+  "message", "messages", "inbox", "dm", "dms", "chat", "chats", "conversation", "conversations"
+]);
+
+// Verbs that only observe public state.
 const L0_OBSERVE_TOKENS = new Set([
   "read", "observe", "navigate", "inspect", "view", "search", "research", "fetch",
   "scroll", "screenshot", "snapshot", "list", "visit"
 ]);
 
-// Input/execution verbs. Outside the recognised L3 "fill"/"prepare" path they
-// make an action unrecognised (denied) so a read token elsewhere in the name
-// cannot launder them ("type_search_query", "upload_screenshot").
-const INTERACTION_VERBS = new Set([
-  "type", "click", "tap", "press", "input", "enter", "upload", "download", "drag", "drop",
-  "execute", "exec", "shell", "command", "install", "write", "edit", "update", "create",
-  "modify", "rename", "move", "remove", "open", "login", "logout", "signin", "signup", "authorize"
+// Local processing verbs.
+const L1_TOKENS = new Set(["summarize", "classify", "score", "extract", "analyze", "save", "report", "generate"]);
+
+// Verbs that may take a write noun as their DIRECT object without performing it.
+const NOUN_QUALIFIERS = new Set([...L0_OBSERVE_TOKENS, ...L1_TOKENS, "draft", "prepare", "fill", "review"]);
+
+// Objects and connective words that carry no capability of their own.
+const BENIGN_TOKENS = new Set([
+  "page", "pages", "public", "thread", "threads", "title", "titles", "url", "urls", "query", "queries",
+  "result", "results", "link", "links", "user", "users", "profile", "profiles", "community", "communities",
+  "subreddit", "subreddits", "repo", "repos", "issue", "issues", "feed", "timeline", "finding", "findings",
+  "evidence", "data", "summary", "content", "text", "state", "html", "dom", "accessibility", "tree",
+  "details", "metadata", "more", "box", "form", "field", "fields", "attempt", "account", "accounts",
+  "interaction", "task", "mode", "each", "all", "top", "new", "latest", "item", "items", "image", "images",
+  "media", "tag", "tags", "stub", "opportunity", "opportunities", "angle", "trace", "artifacts",
+  "the", "a", "an", "to", "for", "on", "of", "and", "then", "or", "with", "from", "in", "by", "at", "as", "run", "it", "this"
 ]);
 
-const PRIVATE_OBJECTS = new Set([
-  "message", "messages", "inbox", "dm", "dms", "chat", "chats", "conversation", "conversations"
+const KNOWN_TOKENS = new Set([
+  ...WRITE_VERBS, ...WRITE_NOUNS, ...PLATFORM_ACTION_VERBS, ...PLATFORM_OBJECTS, ...PRIVATE_OBJECTS,
+  ...L0_OBSERVE_TOKENS, ...L1_TOKENS, ...NOUN_QUALIFIERS, ...BENIGN_TOKENS
 ]);
 
-// Verbs that may take a write noun as their object without performing it.
-const NOUN_QUALIFIERS = new Set([
-  ...READ_QUALIFIERS,
-  ...L0_OBSERVE_TOKENS,
-  "draft", "prepare", "fill", "review"
-]);
-
-const L1_TOKENS = new Set(["summarize", "classify", "score", "extract", "save", "report"]);
+const UNRECOGNISED: ActionClassification = { level: "L4", recognized: false };
 
 export function classifyAction(action: string): ActionClassification {
   const normalized = action.toLowerCase();
@@ -105,45 +111,37 @@ export function classifyAction(action: string): ActionClassification {
     return { level: "L5", recognized: true };
   }
 
-  const hasDraft = has("draft");
-
-  // Any action on private messages, inboxes or chats is private scraping
-  // (L5) unless it is an explicit send (L4, still gated). There is no
-  // drafting exemption: "read_messages_for_draft" reads the inbox.
-  if (hasAny(PRIVATE_OBJECTS) && !hasAny(WRITE_VERBS)) {
-    return { level: "L5", recognized: true };
+  if (tokens.length === 0 || tokens.some((t) => !KNOWN_TOKENS.has(t))) {
+    return UNRECOGNISED;
   }
 
-  const hasWriteVerb = hasAny(WRITE_VERBS);
+  // Private objects: L5, unless the name is only an explicit send
+  // ("send_message", "message_send", "send_dm"). "read_inbox_and_send_reply"
+  // reads the inbox, so it is L5.
+  if (hasAny(PRIVATE_OBJECTS)) {
+    const explicitSend = has("send") && tokens.every((t) => t === "send" || PRIVATE_OBJECTS.has(t) || t === "to" || t === "a");
+    return { level: explicitSend ? "L4" : "L5", recognized: true };
+  }
+
+  const platformAction = hasAny(PLATFORM_ACTION_VERBS) && hasAny(PLATFORM_OBJECTS);
   // A write noun is exempt only as the DIRECT object of a qualifier verb: the
   // token immediately before it must be read/draft/prepare-like.
-  // "draft_reply", "summarize_comments", "search_posts" are not writes;
-  // "post_draft", "read_to_reply", "search_post_reply", "list_posts_comment_on_each" are.
   const unexemptedWriteNoun = tokens.some(
     (t, i) => WRITE_NOUNS.has(t) && !(i > 0 && NOUN_QUALIFIERS.has(tokens[i - 1]))
   );
-  const platformAction = tokens.some(
-    (t, i) => PLATFORM_ACTION_VERBS.has(t) && tokens.slice(i + 1).some((n) => PLATFORM_OBJECTS.has(n))
-  );
 
   // L4: Public write / irreversible action
-  if (platformAction || hasWriteVerb || unexemptedWriteNoun) {
+  if (platformAction || hasAny(WRITE_VERBS) || unexemptedWriteNoun) {
     return { level: "L4", recognized: true };
   }
 
-  // Input/execution verbs deny the action even when "fill"/"prepare" is also
-  // present ("fill_form_and_press_enter", "prepare_and_execute_command").
-  if (hasAny(INTERACTION_VERBS)) {
-    return { level: "L4", recognized: false };
-  }
-
   // L3: Prepared interaction
-  if (has("fill") || has("prepare") || (hasDraft && has("review"))) {
+  if (has("fill") || has("prepare") || (has("draft") && has("review"))) {
     return { level: "L3", recognized: true };
   }
 
   // L2: Private drafting
-  if (hasDraft) {
+  if (has("draft")) {
     return { level: "L2", recognized: true };
   }
 
@@ -157,10 +155,8 @@ export function classifyAction(action: string): ActionClassification {
     return { level: "L0", recognized: true };
   }
 
-  // Unknown verb (e.g. "click", "type", "execute"). Report the most
-  // restrictive non-prohibited level so callers that only read the level
-  // still treat it as a write; isActionAllowed denies it outright.
-  return { level: "L4", recognized: false };
+  // Only objects/connectives, no verb: nothing to authorise.
+  return UNRECOGNISED;
 }
 
 export function getActionRiskLevel(action: string): RiskLevel {
