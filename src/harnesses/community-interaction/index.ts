@@ -7,12 +7,14 @@ export class CommunityInteractionHarness {
     opportunity: InteractionOpportunity,
     traceRecorder: TraceRecorder
   ): { status: "gated_and_disabled"; message: string } {
-    traceRecorder.recordStep(
+    // Recorded as a refusal: nothing was published, so this must not count as
+    // a public action or be logged as an L4 step that was performed.
+    traceRecorder.recordRefusal(
       "publish_attempt",
       "generic",
       "L4",
       { opportunityId: opportunity.id, targetUrl: opportunity.target_url },
-      { message: "Publishing is disabled in MVP" }
+      "Publishing is disabled in MVP"
     );
 
     console.warn(`[CommunityInteractionHarness] Public publish (L4) requested for opportunity '${opportunity.id}', but writing is disabled in the MVP.`);

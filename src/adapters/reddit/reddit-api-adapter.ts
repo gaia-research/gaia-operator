@@ -6,10 +6,22 @@ function getTransparentUserAgent(): string {
     "GaiaOperator/0.1.0 (+https://github.com/gaia-research/gaia-operator; public-community-research; contact=unset)";
 }
 
-const SAFE_PERMALINK = /^\/r\/[A-Za-z0-9_]{1,64}\/comments\/[A-Za-z0-9_]+(?:\/[A-Za-z0-9_%-][A-Za-z0-9_%.-]*)*\/?$/;
+// No "%" (percent-encoded "%2e%2e" is a dot segment to the URL parser) and no
+// segment may start with ".".
+const SAFE_PERMALINK = /^\/r\/[A-Za-z0-9_]{1,64}\/comments\/[A-Za-z0-9_]+(?:\/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\/?$/;
 
 export function isSafePermalink(permalink: unknown): permalink is string {
-  return typeof permalink === "string" && SAFE_PERMALINK.test(permalink);
+  if (typeof permalink !== "string" || !SAFE_PERMALINK.test(permalink)) {
+    return false;
+  }
+  // Belt and braces: the joined URL must stay on www.reddit.com with the same
+  // normalised path.
+  try {
+    const joined = new URL(`https://www.reddit.com${permalink}`);
+    return joined.hostname === "www.reddit.com" && joined.pathname === permalink;
+  } catch {
+    return false;
+  }
 }
 
 export class RedditApiAdapter {

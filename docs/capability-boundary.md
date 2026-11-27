@@ -18,7 +18,7 @@ approval or selects a stronger credential.
 
 | Level | Capability | Approval | Runtime rule |
 |---|---|---|---|
-| L0 | Passive observation of public pages (`read`, `navigate`, `search`, `inspect`, `screenshot`) | none | Only http(s) URLs without embedded credentials; private/inbox/settings URLs refused. |
+| L0 | Passive observation of public pages (`read`, `navigate`, `search`, `inspect`, `screenshot`) | none | Only http(s) URLs without embedded credentials on public hosts; loopback/private/link-local/metadata hosts and private/inbox/settings paths refused. |
 | L1 | Local extraction, scoring, reports | none | Read-only bookkeeping; recordable at any ceiling. |
 | L2 | Private drafting | none | Must be within the task ceiling. |
 | L3 | Prepared interaction (fill, prepare, handoff) | required by default (`REQUIRE_APPROVAL_FOR_L3`) | Must be within the task ceiling; platform defaults cap it further. |
@@ -29,15 +29,15 @@ approval or selects a stronger credential.
 
 | Rule | Enforced in |
 |---|---|
-| An action name no rule recognises is **denied**, not treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
+| Action names are classified by whole `_`/`-` tokens. Write verbs (`submit`, `send`, `vote`, `delete`, …) are always L4; write nouns (`reply`, `post`, `comment`) are L4 unless drafted or read; `report_user`/`save_post` are platform writes. Input/execution verbs (`type`, `click`, `upload`, `execute`, …) and names no rule recognises are **denied**, not treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
 | Constraint flags are requests unless explicitly negative: `true`, `"true"`, `"yes"`, `1` all count. | `src/policies/constraint-intent.ts`, `src/core/policy-engine.ts` |
-| A harness or adapter cannot record a step at L2+ above the task ceiling, or any L5 step. Adapters may narrow capability or stop; they may not upgrade it. | `src/core/trace-recorder.ts` |
+| A harness or adapter cannot record a step at L2+ above the task ceiling, or any L5 step. Adapters may narrow capability or stop; they may not upgrade it. A refused request is logged with `recordRefusal` and never counts as a public action. | `src/core/trace-recorder.ts` |
 | L4/L5 always require approval, whatever the environment says. | `src/core/approval-gates.ts` |
 | Task ids are a single safe path segment; artifact, trace and sync paths are re-checked at the filesystem boundary. | `src/core/task-loader.ts`, `src/core/state-store.ts` (`resolveContained`) |
-| URLs are parsed, never substring-matched. Only http(s); platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
-| Reddit permalinks must be `/r/<sub>/comments/...` paths before they are joined to the reddit.com origin. | `src/adapters/reddit/reddit-api-adapter.ts` |
+| URLs are parsed, never substring-matched. Only http(s) to public literal hosts; platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
+| Reddit permalinks must be `/r/<sub>/comments/...` paths (no `%`, no dot segments) whose joined URL keeps the same host and normalised path. | `src/adapters/reddit/reddit-api-adapter.ts` |
 | Mobile handoff re-validates the target URL immediately before opening it, not only at prepare time. | `src/harnesses/mobile-handoff/index.ts` |
-| CAPTCHA, rate-limit and account-warning pages stop a generic observation run. | `src/harnesses/generic-browser/index.ts` |
+| CAPTCHA, rate-limit and account-warning pages stop a generic observation run. Detection reads visible text plus explicit challenge-widget markup, not raw HTML, so script URLs and asset hashes do not stop a run. | `src/harnesses/generic-browser/index.ts` |
 | A blocked adapter never authorises trying a more powerful one (Hermes CUA remains gated). | `src/adapters/computer-use/hermes-cua-adapter.ts` |
 
 ## Credentials and artifacts
@@ -69,8 +69,10 @@ OS URL open, no out-of-tree write, no leaked secret, no forged approval.
 
 - Stop-condition detection is keyword based. For generic observation the
   "login" keyword is not a stop (almost every public page links to sign-in);
-  the harness never submits credentials. The `429` keyword can stop a run on
-  an unrelated page; that errs toward stopping.
+  the harness never submits credentials. Visible words such as "suspended" or
+  "banned" can still stop a run on an unrelated page; that errs toward stopping.
+- Host checks are literal: no DNS resolution, so a public name that resolves to
+  a private address (DNS rebinding) is not caught here.
 - Persona/soul reference files are resolved relative to the task and
   marketing-tasks paths without containment; their contents are only used as a
   presence flag and are never written to artifacts.

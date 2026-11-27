@@ -2,8 +2,12 @@
 // approval cards. Redaction is defence in depth for artifacts; it is not a
 // licence to put secrets into the pipeline in the first place.
 const TOKEN_PATTERNS: Array<[RegExp, string]> = [
-  // HTTP authorization headers / bearer tokens
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]{8,}/g, "$1 [REDACTED]"],
+  // Authorization header values (whole value, any scheme)
+  [/\b(Authorization|Proxy-Authorization)\s*:\s*[^\r\n]+/gi, "$1: [REDACTED]"],
+  // Bearer/Basic credentials outside a header: require a token-shaped value
+  // (has a digit or base64 punctuation) so prose like "Basic authentication"
+  // is left alone.
+  [/\b(Bearer|Basic)\s+(?=[A-Za-z._~-]*[0-9+\/=])[A-Za-z0-9._~+\/=-]{12,}/g, "$1 [REDACTED]"],
   // GitHub tokens (classic and fine-grained)
   [/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, "[TOKEN_REDACTED]"],
   // Slack tokens
@@ -31,11 +35,16 @@ export class PrivacyChecker {
     // Scrub emails
     scrubbed = scrubbed.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[EMAIL_REDACTED]");
 
-    // Scrub potential passwords/keys in queries and key=value text
+    // Scrub credential-named key/value pairs. The name must END in a
+    // credential word, so "max_tokens: 4096" and "secretary: x" survive while
+    // "client_secret: x", "api_key=x" and "auth_token: x" do not.
     scrubbed = scrubbed.replace(
-      /\b([\w-]*(?:password|passwd|secret|api_?key|access_?key|token|session_?id)[\w-]*)\s*[:=]\s*[^\s&"]+/gi,
+      /\b((?:[A-Za-z0-9]+[_-])*(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))\s*[:=]\s*[^\s&"]+/gi,
       "$1=[REDACTED]"
     );
+    // Bare "key=" (e.g. ?key=... API keys in query strings). Only the "="
+    // form, so prose such as "The key: ..." is untouched.
+    scrubbed = scrubbed.replace(/([?&\s]|^)key=[^\s&"]+/gim, "$1key=[REDACTED]");
 
     return scrubbed;
   }

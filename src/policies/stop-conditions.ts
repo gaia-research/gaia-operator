@@ -50,7 +50,7 @@ export class StopConditionsChecker {
       config.stopConditions.includes("rate_limit") &&
       (lowercaseContent.includes("rate limit") ||
         lowercaseContent.includes("too many requests") ||
-        lowercaseContent.includes("429") ||
+        /\b(?:http|error|status)\s*:?\s*429\b|\b429\s+too many/.test(lowercaseContent) ||
         lowercaseContent.includes("slow down"))
     ) {
       return {

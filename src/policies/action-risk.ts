@@ -19,28 +19,61 @@ export interface ActionClassification {
   recognized: boolean;
 }
 
+// Action names are matched as whole "_"/"-"-delimited tokens. Substring
+// matching let "thread_reply" pass as L0 because "thread" contains "read".
+// Concatenations such as "autopost" match nothing and are denied.
+
+// Verbs that perform a platform-side write. Present anywhere in the name they
+// make the action L4; no qualifier exempts them ("draft_and_submit_post" is L4).
+const WRITE_VERBS = new Set([
+  "submit", "publish", "send", "dm", "repost", "crosspost", "share", "join", "follow",
+  "unfollow", "subscribe", "vote", "upvote", "downvote", "like", "delete", "award"
+]);
+
+// Nouns/verbs that are writes on their own ("post", "thread_reply") but are
+// legitimately mentioned by drafting or read-only actions ("draft_reply",
+// "summarize_comments", "read_posts").
+const WRITE_NOUNS = new Set([
+  "post", "posts", "reply", "replies", "comment", "comments", "message", "messages"
+]);
+
+// Read-only / local verbs that may legitimately mention a write noun.
+const READ_QUALIFIERS = new Set([
+  "summarize", "read", "extract", "inspect", "classify", "score", "analyze",
+  "view", "list", "search", "fetch", "observe"
+]);
+
+// "report"/"save"/"flag"/"hide"/"block" followed by a platform object is a
+// platform-side action (report a user, save a post), not report generation.
+const PLATFORM_ACTION_VERBS = new Set(["report", "save", "flag", "hide", "block", "mute"]);
+const PLATFORM_OBJECTS = new Set(["user", "users", "post", "posts", "comment", "comments", "thread", "threads", "account", "content", "message"]);
+
 // Verbs that only observe public state. Anything that is not matched by a
 // higher-risk rule AND not matched here is unrecognised and denied.
-const L0_OBSERVE_TOKENS = [
-  "read",
-  "observe",
-  "navigate",
-  "inspect",
-  "view",
-  "search",
-  "fetch",
-  "scroll",
-  "screenshot",
-  "snapshot",
-  "list",
-  "open_page",
-  "visit"
-];
+const L0_OBSERVE_TOKENS = new Set([
+  "read", "observe", "navigate", "inspect", "view", "search", "research", "fetch",
+  "scroll", "screenshot", "snapshot", "list", "visit"
+]);
+
+// Input/execution verbs. Outside the recognised L3 "fill"/"prepare" path they
+// make an action unrecognised (denied) so a read token elsewhere in the name
+// cannot launder them ("type_search_query", "upload_screenshot").
+const INTERACTION_VERBS = new Set([
+  "type", "click", "tap", "press", "input", "enter", "upload", "download", "drag", "drop",
+  "execute", "exec", "shell", "command", "install", "write", "edit", "update", "create",
+  "modify", "rename", "move", "remove", "open", "login", "logout", "signin", "signup", "authorize"
+]);
+
+const L1_TOKENS = new Set(["summarize", "classify", "score", "extract", "save", "report"]);
 
 export function classifyAction(action: string): ActionClassification {
   const normalized = action.toLowerCase();
+  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  const has = (token: string) => tokens.includes(token);
+  const hasAny = (set: Set<string>) => tokens.some((t) => set.has(t));
 
-  // L5: Prohibited / Sensitive
+  // L5: Prohibited / Sensitive. Substring matching is deliberate here: this is
+  // a denylist, so over-matching errs toward refusal.
   if (
     normalized.includes("captcha_solv") ||
     normalized.includes("bypass") ||
@@ -61,65 +94,39 @@ export function classifyAction(action: string): ActionClassification {
     return { level: "L5", recognized: true };
   }
 
+  const hasDraft = has("draft");
+  const hasWriteVerb = hasAny(WRITE_VERBS);
+  const hasWriteNoun = hasAny(WRITE_NOUNS);
+  const platformAction = tokens.some(
+    (t, i) => PLATFORM_ACTION_VERBS.has(t) && tokens.slice(i + 1).some((n) => PLATFORM_OBJECTS.has(n))
+  );
+
   // L4: Public write / irreversible action
-  if (
-    normalized.includes("submit") ||
-    normalized.includes("publish") ||
-    normalized.includes("join") ||
-    normalized.includes("follow") ||
-    normalized.includes("message_send") ||
-    normalized.includes("send_dm") ||
-    normalized.includes("send_message") ||
-    normalized.includes("delete") ||
-    normalized.includes("upvote") ||
-    normalized.includes("downvote") ||
-    normalized === "vote" ||
-    normalized.startsWith("vote_") ||
-    normalized === "like" ||
-    normalized.startsWith("like_") ||
-    normalized === "post" ||
-    normalized === "comment" ||
-    normalized === "reply" ||
-    normalized.startsWith("post_") ||
-    normalized.startsWith("comment_") ||
-    normalized.startsWith("reply_") ||
-    (normalized.includes("comment") &&
-      !normalized.includes("summarize") &&
-      !normalized.includes("read") &&
-      !normalized.includes("extract") &&
-      !normalized.includes("inspect"))
-  ) {
+  if (platformAction || hasWriteVerb || (hasWriteNoun && !hasDraft && !hasAny(READ_QUALIFIERS))) {
     return { level: "L4", recognized: true };
   }
 
   // L3: Prepared interaction
-  if (
-    normalized.includes("fill") ||
-    normalized.includes("prepare") ||
-    (normalized.includes("draft") && normalized.includes("review"))
-  ) {
+  if (has("fill") || has("prepare") || (hasDraft && has("review"))) {
     return { level: "L3", recognized: true };
   }
 
+  if (hasAny(INTERACTION_VERBS)) {
+    return { level: "L4", recognized: false };
+  }
+
   // L2: Private drafting
-  if (normalized.includes("draft")) {
+  if (hasDraft) {
     return { level: "L2", recognized: true };
   }
 
   // L1: Structured extraction / processing
-  if (
-    normalized.includes("summarize") ||
-    normalized.includes("classify") ||
-    normalized.includes("score") ||
-    normalized.includes("extract") ||
-    normalized.includes("save") ||
-    normalized.includes("report")
-  ) {
+  if (hasAny(L1_TOKENS)) {
     return { level: "L1", recognized: true };
   }
 
   // L0: Passive observation, only for explicitly recognised read verbs.
-  if (L0_OBSERVE_TOKENS.some((token) => normalized.includes(token))) {
+  if (hasAny(L0_OBSERVE_TOKENS)) {
     return { level: "L0", recognized: true };
   }
 

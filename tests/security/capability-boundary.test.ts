@@ -24,7 +24,8 @@ import { TaskLoader } from "../../src/core/task-loader.js";
 import { StateStore, resolveContained } from "../../src/core/state-store.js";
 import { csvCell, fencedText, inlineText } from "../../src/core/artifact-writer.js";
 import { Orchestrator } from "../../src/core/orchestrator.js";
-import { GenericBrowserHarness } from "../../src/harnesses/generic-browser/index.js";
+import { GenericBrowserHarness, visibleText } from "../../src/harnesses/generic-browser/index.js";
+import { CommunityInteractionHarness } from "../../src/harnesses/community-interaction/index.js";
 import { QueueEntryAdapter } from "../../src/adapters/filesystem/queue-entry-adapter.js";
 import { isSafePermalink } from "../../src/adapters/reddit/reddit-api-adapter.js";
 import { MobileHandoffHarness, MobileHandoffTaskSchema, checkGuardrails } from "../../src/harnesses/mobile-handoff/index.js";
@@ -89,6 +90,25 @@ describe("policy gate: action classification fails closed", () => {
       expect(classification.recognized, action).toBe(false);
       expect(isActionAllowed(action, "L3", true).allowed, action).toBe(false);
     }
+  });
+
+  it("matches whole tokens so read-ish substrings cannot launder writes or input", () => {
+    // Review round 1: "thread" contains "read", "type_search_query" contains "search".
+    for (const action of ["thread_reply", "repost_thread", "report_user", "save_post", "draft_and_submit_post", "send_message"]) {
+      expect(classifyAction(action).level, action).toBe("L4");
+      expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);
+    }
+    for (const action of ["type_search_query", "upload_screenshot", "click_read_more", "autopost", "execute_search"]) {
+      expect(classifyAction(action).recognized, action).toBe(false);
+      expect(isActionAllowed(action, "L3", true).allowed, action).toBe(false);
+    }
+    // Legitimate drafting/reading still classify as before.
+    expect(classifyAction("draft_reply").level).toBe("L2");
+    expect(classifyAction("summarize_comments").level).toBe("L1");
+    expect(classifyAction("read_posts").level).toBe("L0");
+    expect(classifyAction("generate_report").level).toBe("L1");
+    expect(classifyAction("run_research").level).toBe("L0");
+    expect(classifyAction("run_prepare_interaction").level).toBe("L3");
   });
 
   it("keeps recognised observation verbs at L0", () => {
@@ -161,6 +181,18 @@ describe("adapters may not upgrade the declared risk level", () => {
     expect(recorder.getTrace().steps).toHaveLength(2);
   });
 
+  it("records a refused publish attempt without counting a public action", () => {
+    const recorder = new TraceRecorder("publish-stub", "L3");
+    const res = new CommunityInteractionHarness().executePublishStub(
+      baseTask(),
+      { id: "o1", finding_id: "f1", target_url: "https://www.reddit.com/r/x/comments/1", community: "x", user_need: "n", suggested_angle: "a", nova_voice_status: "neutral_fallback", risk_level: "L3", approval_required: true },
+      recorder
+    );
+    expect(res.status).toBe("gated_and_disabled");
+    expect(recorder.getTrace().public_actions_taken).toBe(0);
+    expect(recorder.getTrace().steps[0].output).toMatchObject({ refused: true, requested_risk_level: "L4" });
+  });
+
   it("keeps L4/L5 approval mandatory even if configuration tries to disable it", () => {
     const gates = new ApprovalGates(false, false);
     expect(gates.isApprovalRequired("L4")).toBe(true);
@@ -218,8 +250,39 @@ describe("generic browser observation of hostile pages", () => {
     expect(adapter.navigate).not.toHaveBeenCalledWith(after.url, undefined);
   });
 
+  it("does not stop on markup-only signals or numbers on an ordinary page", async () => {
+    const ordinary = {
+      name: "ordinary",
+      url: "https://hostile-fixture.example/ordinary",
+      title: "Docs",
+      content: "<html><head><script src=\"https://www.google.com/recaptcha/api.js\"></script><link href=\"/app.a8f4291.css\"></head><body><a href=\"/login\">Sign in</a><p>Thread has 429 comments.</p></body></html>"
+    };
+    const second = pages.find((p) => p.name === "policy-bypass")!;
+    const navigate = vi.fn(async (url: string) => (url === ordinary.url ? ordinary : second));
+    const task = baseTask({ id: "hostile-ordinary", platforms: ["generic"], mode: "research", risk_ceiling: "L1", queries: [ordinary.url, second.url] });
+    const res = await new GenericBrowserHarness({ navigate }).execute(task, new TraceRecorder(task.id, task.risk_ceiling));
+    expect(res.blockedState).toBeUndefined();
+    expect(navigate).toHaveBeenCalledTimes(2);
+    expect(visibleText(ordinary.content)).not.toContain("recaptcha");
+  });
+
+  it("reports URLs that were not visited after a stop", async () => {
+    const captcha = pages.find((p) => p.name === "captcha-wall")!;
+    const after = pages.find((p) => p.name === "after-captcha")!;
+    const task = baseTask({ id: "hostile-report", platforms: ["generic"], mode: "research", risk_ceiling: "L1", queries: [captcha.url, after.url] });
+    const res = await new GenericBrowserHarness(fakeAdapter()).execute(task, new TraceRecorder(task.id, task.risk_ceiling));
+    expect(res.reportContent).toMatch(/Not visited \(run stopped\):\n- https:\/\/hostile-fixture\.example\/after-captcha/);
+    expect(res.reportContent).not.toMatch(/Observed URLs:[\s\S]*after-captcha[\s\S]*Not visited/);
+  });
+
   it("refuses non-http(s), credential-bearing and private URLs before touching the adapter", async () => {
     const hostileUrls = [
+      "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      "http://localhost:8080/admin",
+      "http://2130706433/",
+      "http://[::ffff:127.0.0.1]/",
+      "http://10.0.0.5/",
+      "http://metadata.google.internal/",
       "javascript:alert(document.cookie)",
       "file:///etc/passwd",
       "data:text/html,<script>1</script>",
@@ -406,6 +469,24 @@ describe("mobile handoff never opens a hostile target", () => {
 });
 
 describe("artifact hygiene helpers", () => {
+  it("redacts precisely: secrets out, ordinary research prose intact", () => {
+    // Review round 1: these were over- or under-redacted.
+    const keyed = PrivacyChecker.filterSensitiveData("https://maps.example/x?key=AIzaFIXTUREFIXTURE123&q=1");
+    expect(keyed).not.toContain("AIzaFIXTUREFIXTURE123");
+    expect(keyed).toContain("q=1");
+    expect(PrivacyChecker.filterSensitiveData("Authorization: Basic dXNlcjpwYXNz")).not.toContain("dXNlcjpwYXNz");
+    for (const prose of [
+      "Basic authentication fails behind nginx",
+      "Bearer tokens expire quickly",
+      "max_tokens: 4096 and secretary: Jane",
+      "tokens: 1200 per call",
+      "The key: use structured state"
+    ]) {
+      expect(PrivacyChecker.filterSensitiveData(prose), prose).toBe(prose);
+    }
+    expect(PrivacyChecker.filterSensitiveData("client_secret: fixture123")).toBe("client_secret=[REDACTED]");
+  });
+
   it("redacts credential shapes", () => {
     const input = [
       `token ${FIXTURE_TOKEN}`,
@@ -445,5 +526,7 @@ describe("artifact hygiene helpers", () => {
     expect(isSafePermalink("/r/node/comments/abc123/a_title/")).toBe(true);
     expect(isSafePermalink("@hostile-fixture.example/r/x/comments/1")).toBe(false);
     expect(isSafePermalink("/r/node/comments/1/../../../evil")).toBe(false);
+    expect(isSafePermalink("/r/x/comments/1/%2e%2e/%2e%2e/%2e%2e/%2e%2e/settings")).toBe(false);
+    expect(isSafePermalink("/r/x/comments/1/.hidden")).toBe(false);
   });
 });

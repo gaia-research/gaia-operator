@@ -62,6 +62,21 @@ export class TraceRecorder {
     }
   }
 
+  /**
+   * Record that a capability above the ceiling was requested and refused.
+   * Stored at L0 with the requested level in the output, so it neither counts
+   * as a public action nor trips the ceiling guard.
+   */
+  recordRefusal(
+    action: string,
+    platform: PlatformName | undefined,
+    requestedLevel: RiskLevel,
+    input: Record<string, any>,
+    reason: string
+  ): void {
+    this.recordStep(action, platform, "L0", input, { refused: true, requested_risk_level: requestedLevel, reason });
+  }
+
   setApprovalRequired(): void {
     this.trace.approval_required = true;
   }
