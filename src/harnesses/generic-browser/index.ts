@@ -27,13 +27,20 @@ const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turn
 const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b|^\s*just a moment\.\.\./i;
 const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
 
+const INTERSTITIAL_MAX_TEXT = 600;
+
 export function detectGenericBlock(
   html: string,
   title: string
 ): { blockType: BlockedState["block_type"]; description: string } | null {
-  // Interstitials say so up front; an article that mentions "HTTP 429" or
-  // "verify you are a human" further down is content, not a block.
-  const text = `${title} ${visibleText(html).trim().slice(0, 300)}`;
+  // Interstitials are near-empty pages. A page with substantial visible text
+  // (an article titled "Handling HTTP 429", a contact form with a reCAPTCHA
+  // widget) is content, not a block.
+  const visible = visibleText(html).trim();
+  if (visible.length > INTERSTITIAL_MAX_TEXT) {
+    return null;
+  }
+  const text = `${title} ${visible}`;
   if (CHALLENGE_MARKUP.test(html) || CHALLENGE_PHRASES.test(text)) {
     return { blockType: "captcha", description: "CAPTCHA or human-verification challenge detected." };
   }

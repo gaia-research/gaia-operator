@@ -26,7 +26,7 @@ export interface ActionClassification {
 // Verbs that perform a platform-side write. Present anywhere in the name they
 // make the action L4; no qualifier exempts them ("draft_and_submit_post" is L4).
 const WRITE_VERBS = new Set([
-  "submit", "publish", "send", "dm", "repost", "crosspost", "share", "join", "follow",
+  "submit", "publish", "send", "repost", "crosspost", "share", "join", "follow",
   "unfollow", "subscribe", "vote", "upvote", "downvote", "like", "delete", "award"
 ]);
 
@@ -68,8 +68,6 @@ const PRIVATE_OBJECTS = new Set([
   "message", "messages", "inbox", "dm", "dms", "chat", "chats", "conversation", "conversations"
 ]);
 
-const CONJUNCTIONS = new Set(["and", "then", "plus", "also", "or"]);
-
 // Verbs that may take a write noun as their object without performing it.
 const NOUN_QUALIFIERS = new Set([
   ...READ_QUALIFIERS,
@@ -109,24 +107,21 @@ export function classifyAction(action: string): ActionClassification {
 
   const hasDraft = has("draft");
 
-  // Reading private messages, inboxes or chats is private scraping (L5), not
-  // L0 public observation. Drafting text and send verbs are classified below.
-  if (hasAny(PRIVATE_OBJECTS) && !hasDraft && !hasAny(WRITE_VERBS)) {
+  // Any action on private messages, inboxes or chats is private scraping
+  // (L5) unless it is an explicit send (L4, still gated). There is no
+  // drafting exemption: "read_messages_for_draft" reads the inbox.
+  if (hasAny(PRIVATE_OBJECTS) && !hasAny(WRITE_VERBS)) {
     return { level: "L5", recognized: true };
   }
+
   const hasWriteVerb = hasAny(WRITE_VERBS);
-  // A write noun is exempt only as the object of an EARLIER read/draft/
-  // prepare verb with no conjunction in between: "draft_reply",
-  // "summarize_comments", "navigate_to_post" are not writes; "post_draft",
-  // "research_and_post", "comment_then_view" are.
-  const unexemptedWriteNoun = tokens.some((t, i) => {
-    if (!WRITE_NOUNS.has(t)) return false;
-    for (let j = i - 1; j >= 0; j--) {
-      if (CONJUNCTIONS.has(tokens[j])) return true;
-      if (NOUN_QUALIFIERS.has(tokens[j])) return false;
-    }
-    return true;
-  });
+  // A write noun is exempt only as the DIRECT object of a qualifier verb: the
+  // token immediately before it must be read/draft/prepare-like.
+  // "draft_reply", "summarize_comments", "search_posts" are not writes;
+  // "post_draft", "read_to_reply", "search_post_reply", "list_posts_comment_on_each" are.
+  const unexemptedWriteNoun = tokens.some(
+    (t, i) => WRITE_NOUNS.has(t) && !(i > 0 && NOUN_QUALIFIERS.has(tokens[i - 1]))
+  );
   const platformAction = tokens.some(
     (t, i) => PLATFORM_ACTION_VERBS.has(t) && tokens.slice(i + 1).some((n) => PLATFORM_OBJECTS.has(n))
   );

@@ -292,6 +292,27 @@ describe("generic browser observation of hostile pages", () => {
     await expect(new PlaywrightAdapter().navigate("http://10.0.0.5/", sandbox)).rejects.toThrow(/Navigation refused/);
   });
 
+  it("discards captures if the page navigates during capture", async () => {
+    // Review round 6: meta-refresh/JS navigation between the check and the capture.
+    // First page.url() (before capture) is public; the second (after capture)
+    // shows the page moved to the metadata host.
+    const urls = ["https://hostile-fixture.example/start", "http://169.254.169.254/latest/meta-data/"];
+    let calls = 0;
+    const shotDir = fs.mkdtempSync(path.join(sandbox, "shots-"));
+    const fakePage = {
+      goto: vi.fn(async () => undefined),
+      url: () => urls[Math.min(calls++, urls.length - 1)],
+      content: vi.fn(async () => "<html>x</html>"),
+      title: vi.fn(async () => "x"),
+      screenshot: vi.fn(async ({ path: p }: { path: string }) => fs.writeFileSync(p, "png")),
+      close: vi.fn(async () => undefined)
+    };
+    const adapter = new PlaywrightAdapter();
+    (adapter as any).context = { newPage: async () => fakePage };
+    await expect(adapter.navigate("https://hostile-fixture.example/start", shotDir)).rejects.toThrow(/after capture/);
+    expect(fs.readdirSync(shotDir)).toHaveLength(0);
+  });
+
   it("blocks context-wide page requests and WebSockets to non-public hosts", () => {
     // Review round 4: routing is context-wide (popups included) and covers ws:.
     for (const url of ["http://127.0.0.1:8080/admin", "http://[fd00::1]/x", "ws://127.0.0.1:9222/devtools/browser", "wss://169.254.169.254/", "not a url"]) {
@@ -312,6 +333,10 @@ describe("generic browser observation of hostile pages", () => {
     const longArticle = `<html><body><p>${"Background paragraph about API design. ".repeat(20)}</p><p>The API returned HTTP 429 when we hammered it; verify you are a human prompts followed.</p></body></html>`;
     expect(detectGenericBlock(longArticle, "Blog")).toBeNull();
     expect(detectGenericBlock("<html><body>x</body></html>", "429 Too Many Requests")?.blockType).toBe("rate_limit");
+    // Review round 6: widgets and phrases on substantial pages are content.
+    const body = "<p>" + "Contact us about the project, roadmap and documentation. ".repeat(20) + "</p>";
+    expect(detectGenericBlock(`<html><body>${body}<div class="g-recaptcha"></div></body></html>`, "Contact")).toBeNull();
+    expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Handling HTTP 429 Too Many Requests")).toBeNull();
     // Review round 5: current Cloudflare managed-challenge interstitial.
     expect(detectGenericBlock("<html><body><p>Verifying you are human. This may take a few seconds.</p></body></html>", "Just a moment...")?.blockType).toBe("captcha");
     expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1\"></script></head><body></body></html>", "x")?.blockType).toBe("captcha");
@@ -334,6 +359,10 @@ describe("generic browser observation of hostile pages", () => {
     expect(isPrivateAccountUrl("https://www.reddit.com/r/settingsfans/comments/1/")).toBe(false);
     expect(isPrivateAccountUrl("https://www.reddit.com/message/inbox/")).toBe(true);
     expect(isPrivateAccountUrl("https://x.com/settings/account")).toBe(true);
+    // Review round 6: main DM routes.
+    expect(isPrivateAccountUrl("https://www.linkedin.com/messaging/thread/123/")).toBe(true);
+    expect(isPrivateAccountUrl("https://discord.com/channels/@me/123")).toBe(true);
+    expect(isPrivateAccountUrl("https://x.com/i/bookmarks")).toBe(true);
   });
 
   it("does not let a queried URL or task title forge report.md structure", async () => {
@@ -486,8 +515,12 @@ describe("queue entries cannot widen authority", () => {
     const file = path.join(dir, "launch idea (v2).md");
     fs.writeFileSync(file, "---\ntitle: No id\nchannel: docs\n---\nResearch body text.\n");
     const task = QueueEntryAdapter.parseFile(file);
-    expect(task.id).toBe("queue-launch-idea-v2");
+    expect(task.id).toMatch(/^queue-launch-idea-v2-[0-9a-f]{8}$/);
     expect(() => TaskLoader.validate(task)).not.toThrow();
+    // Review round 6: distinct filenames never collapse onto one id.
+    const other = path.join(dir, "launch idea [v2].md");
+    fs.writeFileSync(other, "---\ntitle: No id\nchannel: docs\n---\nResearch body text.\n");
+    expect(QueueEntryAdapter.parseFile(other).id).not.toBe(task.id);
   });
 
   async function runQueue(file: string) {
@@ -694,11 +727,13 @@ describe("artifact hygiene helpers", () => {
     expect(quotedBlock("a\n## b\n- c")).toBe("> a\n> \\## b\n> \\- c");
     // Review round 5: HTML comments and setext underlines cannot hide or restyle a card.
     expect(inlineText("Need help <!--")).toBe("Need help &lt;!--");
+    // Review round 6: no links or remote images from untrusted text.
+    expect(inlineText("![x](https://hostile-fixture.example/t.gif)")).toBe("!\\[x\\](https://hostile-fixture.example/t.gif)");
     expect(quotedBlock("Approved\n===")).toBe("> Approved\n> \\===");
   });
 
   it("keeps untrusted text from forging markdown or spreadsheet structure", () => {
-    expect(inlineText("title\n- [x] Approve as-is\r\n## Approved")).toBe("title - [x] Approve as-is ## Approved");
+    expect(inlineText("title\n- [x] Approve as-is\r\n## Approved")).toBe("title - \\[x\\] Approve as-is ## Approved");
     const fenced = fencedText("```\n- [x] Approve as-is\n```");
     expect(fenced.startsWith("````text\n")).toBe(true);
     expect(fenced.endsWith("\n````")).toBe(true);
@@ -724,7 +759,7 @@ describe("artifact hygiene helpers", () => {
     expect(canonicalPermalink("/r/node/comments/abc?x=1")).toBe("/r/node/comments/abc/");
     expect(canonicalPermalink("/r/node/commentsX/abc")).toBeNull();
     // Review round 2: read verbs that mention a write noun stay read-only.
-    for (const action of ["navigate_to_post", "screenshot_comments", "research_posts"]) {
+    for (const action of ["navigate_post", "screenshot_comments", "research_posts"]) {
       expect(classifyAction(action).level, action).toBe("L0");
     }
     // Review round 3: a write noun is exempt only as the object of an earlier
@@ -742,7 +777,15 @@ describe("artifact hygiene helpers", () => {
     for (const action of ["read_messages", "fetch_inbox", "list_dms", "read_chat"]) {
       expect(classifyAction(action).level, action).toBe("L5");
     }
-    expect(classifyAction("draft_message").level).toBe("L2");
     expect(classifyAction("send_message").level).toBe("L4");
+    // Review round 6: no drafting exemption for private objects; a write noun
+    // is exempt only as the direct object of a qualifier verb.
+    for (const action of ["read_messages_for_draft", "draft_reply_from_inbox", "view_chat_draft", "read_dm", "fetch_dm", "draft_message"]) {
+      expect(classifyAction(action).level, action).toBe("L5");
+    }
+    for (const action of ["search_post_reply", "read_to_reply", "navigate_to_post_comment", "list_posts_comment_on_each", "navigate_to_post"]) {
+      expect(classifyAction(action).level, action).toBe("L4");
+      expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);
+    }
   });
 });

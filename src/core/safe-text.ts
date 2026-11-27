@@ -12,9 +12,10 @@ import { PrivacyChecker } from "../policies/privacy.js";
 // Collapse to one line so content cannot inject headings, checkboxes such as
 // "- [x] Approve as-is", or extra list items into approval/draft cards.
 // "<" is escaped so content cannot open an HTML comment or tag that hides the
-// rest of a rendered card.
+// rest of a rendered card; "[" and "]" so it cannot form links or remote
+// images ("![x](https://...)") that load when a reviewer previews the card.
 function escapeHtml(text: string): string {
-  return text.replace(/</g, "&lt;");
+  return text.replace(/</g, "&lt;").replace(/([\[\]])/g, "\\$1");
 }
 
 export function inlineText(value: string | undefined): string {

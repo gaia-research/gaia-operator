@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
+import { createHash } from "crypto";
 import { OperatorTask } from "../../core/types.js";
 import { TaskValidationError } from "../../core/errors.js";
 
@@ -166,12 +167,18 @@ export class QueueEntryAdapter {
       path.basename(entry.filePath, path.extname(entry.filePath));
     // An explicit frontmatter id is validated as-is (and rejected if unsafe);
     // the filename fallback is sanitised so ordinary filenames still load.
-    const fallbackId = `queue-${path.basename(entry.filePath, path.extname(entry.filePath))}`
+    const rawFallback = `queue-${path.basename(entry.filePath, path.extname(entry.filePath))}`;
+    let fallbackId = rawFallback
       .replace(/[^A-Za-z0-9._-]+/g, "-")
       .replace(/\.{2,}/g, ".")
       .replace(/-{2,}/g, "-")
-      .replace(/[-.]+$/, "")
-      .slice(0, 128);
+      .replace(/[-.]+$/, "");
+    if (fallbackId !== rawFallback) {
+      // Distinct filenames must not collapse onto one id (and one artifact dir).
+      const digest = createHash("sha256").update(rawFallback).digest("hex").slice(0, 8);
+      fallbackId = `${fallbackId.slice(0, 119)}-${digest}`;
+    }
+    fallbackId = fallbackId.slice(0, 128);
     const id = typeof metadata.id === "string" ? metadata.id.trim() : fallbackId;
     const channel = normalizeChannel(metadata.channel);
     const platformRaw = typeof metadata.platform === "string" ? metadata.platform.trim().toLowerCase() : "";

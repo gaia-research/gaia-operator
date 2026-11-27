@@ -3,7 +3,7 @@
 Gaia Operator sits between untrusted platform content and browser/API/OS
 capabilities. This document is the executable half of the security contract:
 what each risk level permits, where the runtime enforces it, and which tests
-prove it. The policy statement lives in the root `SECURITY.md` (#8).
+prove it. The policy statement is the root `SECURITY.md` proposed in #8 (not yet merged).
 
 ```text
 untrusted content -> harness/model -> requested action -> policy gate -> adapter -> side effect
@@ -29,7 +29,7 @@ approval or selects a stronger credential.
 
 | Rule | Enforced in |
 |---|---|
-| Action names are classified by whole `_`/`-` tokens. Write verbs (`submit`, `send`, `vote`, `delete`, …) are always L4. Write nouns (`reply`, `post`, `comment`) are L4 unless they are the object of an earlier read/draft/prepare verb with no conjunction between (`draft_reply` is L2, `post_draft` and `research_and_post` are L4). `report_user`/`save_post` are platform writes. Reading private messages, inboxes or chats is L5. Input/execution verbs (`type`, `click`, `upload`, `execute`, …) are **denied** even alongside `fill`/`prepare`, as are names no rule recognises; neither is treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
+| Action names are classified by whole `_`/`-` tokens. Write verbs (`submit`, `send`, `vote`, `delete`, …) are always L4. Write nouns (`reply`, `post`, `comment`) are L4 unless they are the direct object of a read/draft/prepare verb, i.e. the token immediately before them (`draft_reply` is L2; `post_draft`, `read_to_reply`, `search_post_reply` are L4). `report_user`/`save_post` are platform writes. Any action on private messages, inboxes, DMs or chats is L5 unless it is an explicit send (L4). Input/execution verbs (`type`, `click`, `upload`, `execute`, …) are **denied** even alongside `fill`/`prepare`, as are names no rule recognises; neither is treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
 | Constraint flags are requests unless explicitly negative: `true`, `"true"`, `"yes"`, `1` all count. | `src/policies/constraint-intent.ts`, `src/core/policy-engine.ts` |
 | A harness or adapter cannot record a step at L2+ above the task ceiling, or any L5 step. Adapters may narrow capability or stop; they may not upgrade it. A refused request is logged with `recordRefusal` and never counts as a public action. | `src/core/trace-recorder.ts` |
 | L4/L5 always require approval, whatever the environment says. | `src/core/approval-gates.ts` |
@@ -37,8 +37,8 @@ approval or selects a stronger credential.
 | URLs are parsed, never substring-matched. Only http(s) to public hosts: loopback, RFC 1918, CGNAT, link-local/metadata, benchmarking and documentation ranges, IPv6 ULA/link-local/site-local/multicast, IPv4-mapped/-compatible and NAT64 forms of those, single-label names and `.local`/`.internal`/`.svc`/`.corp`-style suffixes are refused. Platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
 | Reddit thread URLs are rebuilt from a validated `/r/<sub>/comments/<id>` prefix only; the slug, query and any `%2e%2e`/dot segments are discarded, and anything without that prefix is dropped. Browser-fallback URLs must also be https on reddit.com. | `src/adapters/reddit/reddit-api-adapter.ts`, `reddit-browser-adapter.ts` |
 | Mobile handoff re-runs every guardrail (target URL, platform, constraints, draft) on the current task file immediately before opening the URL, not only at prepare time. | `src/harnesses/mobile-handoff/index.ts` |
-| The browser adapter refuses a non-public URL before navigating; aborts requests and WebSockets to non-public hosts from every page in the context (popups included) and blocks service workers; and discards a page that redirected to a non-public host or a platform account path (no content, title or screenshot kept). | `src/adapters/browser/playwright-adapter.ts` |
-| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals only (challenge-widget or Cloudflare challenge-platform markup, or an interstitial phrase such as "Just a moment..." / "Verifying you are human" in the title or the first 300 characters of visible text), so articles that mention captchas, rate limits or bans do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
+| The browser adapter refuses a non-public URL before navigating; aborts requests and WebSockets to non-public hosts from every page in the context (popups included) and blocks service workers; and discards a page that redirected to a non-public host or a platform account path, checking both before and after capture (no content, title or screenshot kept). | `src/adapters/browser/playwright-adapter.ts` |
+| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals only on a near-empty interstitial page: challenge-widget or Cloudflare challenge-platform markup, or a phrase such as "Just a moment..." / "Verifying you are human" / "Too Many Requests"), so articles and forms that mention or embed these do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
 | A blocked adapter never authorises trying a more powerful one (Hermes CUA remains gated). | `src/adapters/computer-use/hermes-cua-adapter.ts` |
 
 ## Credentials and artifacts
@@ -55,8 +55,8 @@ approval or selects a stronger credential.
 - Untrusted single-line fields (titles, communities, URLs) are collapsed to
   one line in approval cards, draft cards and `report.md`. Draft text is
   fenced with a fence longer than any backtick run inside it, excerpts are
-  blockquoted line by line, `<` is escaped (no HTML comments or tags that
-  hide card content), and CSV cells are neutralised against spreadsheet
+  blockquoted line by line, `<`, `[` and `]` are escaped (no HTML comments,
+  tags, links or remote images that hide content or load on preview), and CSV cells are neutralised against spreadsheet
   formula injection. Content cannot forge a checked approval box.
 - Redaction is defence in depth, not permission to publish an artifact unread.
   Screenshots are not redacted; review them before sharing.
@@ -86,4 +86,8 @@ OS URL open, no out-of-tree write, no leaked secret, no forged approval.
   marketing-tasks paths without containment; their contents are only used as a
   presence flag and are never written to artifacts.
 - Redaction recognises finite formats and is not a secret scanner.
-- Private vulnerability reporting: see the root `SECURITY.md` (#8).
+- Private vulnerability reporting: see the root `SECURITY.md` proposed in #8.
+  Until it merges, follow the organisation policy in
+  `gaia-research/gaia-security` `SECURITY.md` (interim private intake via the
+  Skill Tree private advisory channel). Never open a public issue with exploit
+  details.

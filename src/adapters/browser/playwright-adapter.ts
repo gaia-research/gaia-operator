@@ -92,15 +92,19 @@ export class PlaywrightAdapter {
       // private host is refused: no content, title or screenshot is kept.
       // (The redirect hop itself has already been requested; see
       // docs/capability-boundary.md, Known limits.)
-      const landedUrl = page.url();
-      const landed = checkNavigableUrl(landedUrl);
-      if (!landed.ok) {
-        throw new Error(`Navigation refused after redirect: ${landed.reason}`);
-      }
-      if (isPrivateAccountUrl(landedUrl)) {
-        throw new Error("Navigation refused after redirect: landed on private/account content.");
-      }
+      const assertLanded = (stage: string): string => {
+        const landedUrl = page.url();
+        const landed = checkNavigableUrl(landedUrl);
+        if (!landed.ok) {
+          throw new Error(`Navigation refused after redirect (${stage}): ${landed.reason}`);
+        }
+        if (isPrivateAccountUrl(landedUrl)) {
+          throw new Error(`Navigation refused after redirect (${stage}): landed on private/account content.`);
+        }
+        return landedUrl;
+      };
 
+      const landedBefore = assertLanded("before capture");
       const content = await page.content();
       const title = await page.title();
 
@@ -112,6 +116,18 @@ export class PlaywrightAdapter {
         const filename = `screenshot_${Date.now()}.png`;
         screenshotPath = path.join(screenshotDir, filename);
         await page.screenshot({ path: screenshotPath, fullPage: true });
+      }
+
+      // A meta-refresh or script navigation can land between the first check
+      // and the captures. Re-check, and discard everything if the page moved.
+      try {
+        const landedAfter = assertLanded("after capture");
+        if (landedAfter !== landedBefore) {
+          throw new Error("Navigation refused: page navigated during capture.");
+        }
+      } catch (err) {
+        if (screenshotPath) fs.rmSync(screenshotPath, { force: true });
+        throw err;
       }
 
       return { content, title, screenshotPath };

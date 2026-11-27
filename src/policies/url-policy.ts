@@ -156,8 +156,8 @@ const PLATFORM_DOMAINS = [
   "discord.com", "discordapp.com", "youtube.com", "ycombinator.com"
 ];
 const PRIVATE_SEGMENTS = new Set([
-  "message", "messages", "direct", "inbox", "settings", "preferences", "private",
-  "notifications", "chat", "dm", "dms", "account"
+  "message", "messages", "messaging", "direct", "inbox", "settings", "preferences", "private",
+  "notifications", "chat", "dm", "dms", "account", "@me", "bookmarks", "saved"
 ]);
 
 export function isPrivateAccountUrl(raw: string): boolean {
