@@ -3,6 +3,7 @@ import * as path from "path";
 import dotenv from "dotenv";
 import { OperatorTask, ResultSummary } from "../../core/types.js";
 import { TaskLoader } from "../../core/task-loader.js";
+import { resolveContained } from "../../core/state-store.js";
 
 dotenv.config();
 
@@ -51,7 +52,7 @@ export class MarketingTasksAdapter {
       fs.mkdirSync(syncDir, { recursive: true });
     }
 
-    const syncPath = path.join(syncDir, `${taskId}_result.json`);
+    const syncPath = resolveContained(syncDir, `${taskId}_result.json`);
     fs.writeFileSync(syncPath, JSON.stringify(result, null, 2), "utf-8");
     console.log(`[MarketingTasksAdapter] Task status synced to marketing-tasks: ${syncPath}`);
     return syncPath;

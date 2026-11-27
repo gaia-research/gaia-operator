@@ -5,7 +5,8 @@ export class StopConditionsChecker {
   static checkContent(
     platform: PlatformName,
     content: string,
-    url?: string
+    url?: string,
+    ignore: BlockedState["block_type"][] = []
   ): { shouldStop: boolean; blockType?: BlockedState["block_type"]; description?: string } {
     const config = PlatformPolicyRegistry.getPlatformConfig(platform);
     const lowercaseContent = content.toLowerCase();
@@ -29,6 +30,7 @@ export class StopConditionsChecker {
 
     // Check Login Challenge
     if (
+      !ignore.includes("login") &&
       config.stopConditions.includes("login_challenge") &&
       (lowercaseContent.includes("login") ||
         lowercaseContent.includes("sign in") ||

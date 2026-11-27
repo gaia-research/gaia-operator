@@ -4,6 +4,27 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+/**
+ * Resolve `segment` as a single child of `root`, refusing anything that would
+ * land elsewhere (absolute paths, `..`, separators). Task ids are validated at
+ * load time; this is the defence-in-depth check at the filesystem boundary.
+ */
+export function resolveContained(root: string, segment: string): string {
+  const resolvedRoot = path.resolve(root);
+  const target = path.resolve(resolvedRoot, segment);
+  if (
+    !segment ||
+    segment.includes("/") ||
+    segment.includes("\\") ||
+    segment === "." ||
+    segment === ".." ||
+    path.dirname(target) !== resolvedRoot
+  ) {
+    throw new Error(`Refusing path segment '${segment}': it escapes ${resolvedRoot}.`);
+  }
+  return target;
+}
+
 export class StateStore {
   private baseDir: string;
 
@@ -33,7 +54,7 @@ export class StateStore {
 
   getArtifactsDir(taskId?: string): string {
     if (taskId) {
-      const taskDir = path.join(this.baseDir, "artifacts", taskId);
+      const taskDir = resolveContained(path.join(this.baseDir, "artifacts"), taskId);
       if (!fs.existsSync(taskDir)) {
         fs.mkdirSync(taskDir, { recursive: true });
       }

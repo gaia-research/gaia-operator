@@ -6,8 +6,10 @@ import {
   MobileHandoffTask, 
   checkGuardrails, 
   generateDraft, 
-  loadRefFile 
+  loadRefFile,
+  checkTargetUrl
 } from "./prepare.js";
+import { resolveContained } from "../../core/state-store.js";
 
 export { 
   MobileHandoffTaskSchema, 
@@ -32,8 +34,8 @@ export class MobileHandoffHarness {
    */
   private static writeToArtifactDirs(taskId: string, fileName: string, content: string): void {
     const paths = [
-      path.resolve(process.cwd(), ".gaia-operator", "mobile", "handoffs", taskId, fileName),
-      path.resolve(process.cwd(), "artifacts", "mobile-handoff", taskId, fileName)
+      path.join(resolveContained(path.resolve(process.cwd(), ".gaia-operator", "mobile", "handoffs"), taskId), fileName),
+      path.join(resolveContained(path.resolve(process.cwd(), "artifacts", "mobile-handoff"), taskId), fileName)
     ];
 
     for (const p of paths) {
@@ -178,7 +180,7 @@ export class MobileHandoffHarness {
     const taskDir = path.dirname(path.resolve(process.cwd(), taskFilePath));
     
     // Check if task is already prepared, if not, prepare it.
-    const artifactsDir = path.resolve(process.cwd(), "artifacts", "mobile-handoff", task.id);
+    const artifactsDir = resolveContained(path.resolve(process.cwd(), "artifacts", "mobile-handoff"), task.id);
     const draftPath = path.join(artifactsDir, "draft.txt");
     const checkPath = path.join(artifactsDir, "guardrail-check.md");
 
@@ -198,6 +200,18 @@ export class MobileHandoffHarness {
           taskId: task.id
         };
       }
+    }
+
+    // Re-check the target immediately before the side effect: the task file
+    // may have changed since prepare() wrote its PASSED guardrail record.
+    const urlViolations = checkTargetUrl(task);
+    if (urlViolations.length > 0) {
+      return {
+        success: false,
+        message: "Cannot run handoff: target URL failed validation.",
+        violations: urlViolations,
+        taskId: task.id
+      };
     }
 
     // Read draft

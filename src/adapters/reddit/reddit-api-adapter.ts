@@ -6,6 +6,12 @@ function getTransparentUserAgent(): string {
     "GaiaOperator/0.1.0 (+https://github.com/gaia-research/gaia-operator; public-community-research; contact=unset)";
 }
 
+const SAFE_PERMALINK = /^\/r\/[A-Za-z0-9_]{1,64}\/comments\/[A-Za-z0-9_]+(?:\/[A-Za-z0-9_%-][A-Za-z0-9_%.-]*)*\/?$/;
+
+export function isSafePermalink(permalink: unknown): permalink is string {
+  return typeof permalink === "string" && SAFE_PERMALINK.test(permalink);
+}
+
 export class RedditApiAdapter {
   private userAgent: string;
 
@@ -52,7 +58,10 @@ export class RedditApiAdapter {
       }
 
       return json.data.children
-        .filter((child: any) => child?.kind === "t3" && child?.data?.permalink)
+        // The permalink is concatenated onto the reddit.com origin, so it must
+        // be a plain /r/<sub>/comments/... path. "@evil.example/x" would
+        // otherwise turn the target URL into a different host.
+        .filter((child: any) => child?.kind === "t3" && isSafePermalink(child?.data?.permalink))
         .map((child: any) => {
           const d = child.data;
           return {

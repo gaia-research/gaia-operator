@@ -6,9 +6,10 @@ export class BlockDetector {
     taskId: string,
     platform: PlatformName,
     content: string,
-    url?: string
+    url?: string,
+    ignore: BlockedState["block_type"][] = []
   ): BlockedState | null {
-    const result = StopConditionsChecker.checkContent(platform, content, url);
+    const result = StopConditionsChecker.checkContent(platform, content, url, ignore);
     if (result.shouldStop && result.blockType) {
       return {
         task_id: taskId,
