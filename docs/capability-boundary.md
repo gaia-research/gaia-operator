@@ -29,15 +29,16 @@ approval or selects a stronger credential.
 
 | Rule | Enforced in |
 |---|---|
-| Action names are classified by whole `_`/`-` tokens. Write verbs (`submit`, `send`, `vote`, `delete`, …) are always L4; write nouns (`reply`, `post`, `comment`) are L4 unless drafted or read; `report_user`/`save_post` are platform writes. Input/execution verbs (`type`, `click`, `upload`, `execute`, …) and names no rule recognises are **denied**, not treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
+| Action names are classified by whole `_`/`-` tokens. Write verbs (`submit`, `send`, `vote`, `delete`, …) are always L4. Write nouns (`reply`, `post`, `comment`) are L4 unless they are the object of an earlier read/draft/prepare verb with no conjunction between (`draft_reply` is L2, `post_draft` and `research_and_post` are L4). `report_user`/`save_post` are platform writes. Input/execution verbs (`type`, `click`, `upload`, `execute`, …) and names no rule recognises are **denied**, not treated as L0. | `src/policies/action-risk.ts` (`classifyAction`, `isActionAllowed`) |
 | Constraint flags are requests unless explicitly negative: `true`, `"true"`, `"yes"`, `1` all count. | `src/policies/constraint-intent.ts`, `src/core/policy-engine.ts` |
 | A harness or adapter cannot record a step at L2+ above the task ceiling, or any L5 step. Adapters may narrow capability or stop; they may not upgrade it. A refused request is logged with `recordRefusal` and never counts as a public action. | `src/core/trace-recorder.ts` |
 | L4/L5 always require approval, whatever the environment says. | `src/core/approval-gates.ts` |
 | Task ids are a single safe path segment; artifact, trace and sync paths are re-checked at the filesystem boundary. | `src/core/task-loader.ts`, `src/core/state-store.ts` (`resolveContained`) |
-| URLs are parsed, never substring-matched. Only http(s) to public literal hosts; platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
-| Reddit permalinks must be `/r/<sub>/comments/...` paths (no `%`, no dot segments) whose joined URL keeps the same host and normalised path. Browser-fallback thread URLs get the same check and must be https on reddit.com. | `src/adapters/reddit/reddit-api-adapter.ts`, `reddit-browser-adapter.ts` |
+| URLs are parsed, never substring-matched. Only http(s) to public hosts: loopback, RFC 1918, CGNAT, link-local/metadata, benchmarking and documentation ranges, IPv6 ULA/link-local/site-local/multicast, IPv4-mapped/-compatible and NAT64 forms of those, single-label names and `.local`/`.internal`-style suffixes are refused. Platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
+| Reddit thread URLs are rebuilt from a validated `/r/<sub>/comments/<id>` prefix only; the slug, query and any `%2e%2e`/dot segments are discarded, and anything without that prefix is dropped. Browser-fallback URLs must also be https on reddit.com. | `src/adapters/reddit/reddit-api-adapter.ts`, `reddit-browser-adapter.ts` |
 | Mobile handoff re-validates the target URL immediately before opening it, not only at prepare time. | `src/harnesses/mobile-handoff/index.ts` |
-| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals only (challenge-widget markup, interstitial phrases in the title or visible text), so articles that merely mention captchas, rate limits or bans do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
+| The browser adapter refuses a non-public URL before navigating, aborts page-initiated requests to non-public hosts, and discards a page that redirected to one (no content, title or screenshot kept). | `src/adapters/browser/playwright-adapter.ts` |
+| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals only (challenge-widget markup, or an interstitial phrase in the title or the first 300 characters of visible text), so articles that mention captchas, rate limits or bans do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
 | A blocked adapter never authorises trying a more powerful one (Hermes CUA remains gated). | `src/adapters/computer-use/hermes-cua-adapter.ts` |
 
 ## Credentials and artifacts
@@ -75,6 +76,11 @@ OS URL open, no out-of-tree write, no leaked secret, no forged approval.
   signs in or submits anything, so those pages are observed, not acted on.
 - Host checks are literal: no DNS resolution, so a public name that resolves to
   a private address (DNS rebinding) is not caught here.
+- Playwright routes only the first request of a redirect chain. A public URL
+  that redirects to a private host is refused after landing (nothing is kept),
+  but the redirected request itself has already been sent.
+- JSON keys whose name ends in a credential word are blanked; free text such
+  as "the token: abc" is also redacted, which can over-redact prose.
 - Persona/soul reference files are resolved relative to the task and
   marketing-tasks paths without containment; their contents are only used as a
   presence flag and are never written to artifacts.

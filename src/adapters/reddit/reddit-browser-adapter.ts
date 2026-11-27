@@ -3,7 +3,7 @@ import { RedditThread, RedditComment } from "./reddit-types.js";
 import { BlockDetector } from "../../core/block-detector.js";
 import { BlockedSessionError } from "../../core/errors.js";
 import { checkNavigableUrl, hostMatches } from "../../policies/url-policy.js";
-import { isSafePermalink } from "./reddit-api-adapter.js";
+import { canonicalPermalink } from "./reddit-api-adapter.js";
 
 export class RedditBrowserAdapter {
   private browserAdapter: PlaywrightAdapter;
@@ -84,18 +84,22 @@ export class RedditBrowserAdapter {
   }
 
   private normalizeUrl(url: string): string | null {
+    let pathname: string;
     if (url.startsWith("/")) {
-      return isSafePermalink(url) ? `https://www.reddit.com${url}` : null;
-    }
-    if (checkNavigableUrl(url).ok && hostMatches(url, ["reddit.com"])) {
+      pathname = url;
+    } else if (checkNavigableUrl(url).ok && hostMatches(url, ["reddit.com"])) {
       try {
         const parsed = new URL(url);
-        return parsed.protocol === "https:" && isSafePermalink(parsed.pathname) ? parsed.href : null;
+        if (parsed.protocol !== "https:") return null;
+        pathname = parsed.pathname;
       } catch {
         return null;
       }
+    } else {
+      return null;
     }
-    return null;
+    const canonical = canonicalPermalink(pathname);
+    return canonical ? `https://www.reddit.com${canonical}` : null;
   }
 
   private decodeHtml(value: string): string {

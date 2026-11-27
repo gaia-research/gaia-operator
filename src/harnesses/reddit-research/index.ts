@@ -13,6 +13,7 @@ import { RedditReportBuilder } from "./report.js";
 import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockedSessionError } from "../../core/errors.js";
 import { PrivacyChecker } from "../../policies/privacy.js";
+import { isConstraintRequested } from "../../policies/constraint-intent.js";
 
 export class RedditResearchHarness {
   private browserAdapter: PlaywrightAdapter;
@@ -149,7 +150,7 @@ export class RedditResearchHarness {
               draft_reply: draftReply,
               nova_voice_status: voiceStatus,
               risk_level: recommendedAction === "approval_required" ? "L3" : "L2",
-              approval_required: recommendedAction === "approval_required" || task.constraints.require_approval === true
+              approval_required: recommendedAction === "approval_required" || isConstraintRequested(task.constraints.require_approval)
             });
           }
         }

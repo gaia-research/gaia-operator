@@ -29,7 +29,8 @@ import { RedditReportBuilder } from "../../src/harnesses/reddit-research/report.
 import { quotedBlock } from "../../src/core/artifact-writer.js";
 import { CommunityInteractionHarness } from "../../src/harnesses/community-interaction/index.js";
 import { QueueEntryAdapter } from "../../src/adapters/filesystem/queue-entry-adapter.js";
-import { isSafePermalink } from "../../src/adapters/reddit/reddit-api-adapter.js";
+import { isSafePermalink, canonicalPermalink } from "../../src/adapters/reddit/reddit-api-adapter.js";
+import { PlaywrightAdapter } from "../../src/adapters/browser/playwright-adapter.js";
 import { RedditBrowserAdapter } from "../../src/adapters/reddit/reddit-browser-adapter.js";
 import { MobileHandoffHarness, MobileHandoffTaskSchema, checkGuardrails } from "../../src/harnesses/mobile-handoff/index.js";
 import { MobileHandoffAdapter } from "../../src/adapters/mobile/mobile-handoff.js";
@@ -269,12 +270,49 @@ describe("generic browser observation of hostile pages", () => {
     expect(visibleText(ordinary.content)).not.toContain("recaptcha");
   });
 
+  it("refuses a page that redirected to a private host and blocks private subresources", async () => {
+    // Review round 3: page.goto follows redirects; only the requested URL was checked.
+    let routeHandler: any;
+    const fakePage = {
+      route: vi.fn(async (_p: string, h: any) => { routeHandler = h; }),
+      goto: vi.fn(async () => undefined),
+      url: () => "http://169.254.169.254/latest/meta-data/",
+      content: vi.fn(async () => "<html>metadata</html>"),
+      title: vi.fn(async () => "meta"),
+      screenshot: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined)
+    };
+    const adapter = new PlaywrightAdapter();
+    (adapter as any).context = { newPage: async () => fakePage };
+
+    await expect(adapter.navigate("https://hostile-fixture.example/redirect", sandbox)).rejects.toThrow(/after redirect/);
+    expect(fakePage.content).not.toHaveBeenCalled();
+    expect(fakePage.screenshot).not.toHaveBeenCalled();
+    expect(fakePage.close).toHaveBeenCalled();
+
+    const routed = (url: string) => {
+      const route = { request: () => ({ url: () => url }), abort: vi.fn(), continue: vi.fn() };
+      routeHandler(route);
+      return route;
+    };
+    expect(routed("http://127.0.0.1:8080/admin").abort).toHaveBeenCalled();
+    expect(routed("http://[fd00::1]/x").abort).toHaveBeenCalled();
+    expect(routed("https://cdn.hostile-fixture.example/app.js").continue).toHaveBeenCalled();
+    expect(routed("data:image/png;base64,AAAA").continue).toHaveBeenCalled();
+
+    await expect(adapter.navigate("http://10.0.0.5/", sandbox)).rejects.toThrow(/Navigation refused/);
+  });
+
   it("does not stop on ordinary article words about captchas, rate limits or bans", async () => {
     // Review round 2: substring checks stopped on any page discussing these topics.
     const article = "<html><body><h1>Why CAPTCHA and rate limit errors happen</h1><p>The user was banned and suspended; slow down.</p></body></html>";
     expect(detectGenericBlock(article, "Blog: rate limit tips")).toBeNull();
     expect(detectGenericBlock("<html><body><div class=\"cf-turnstile\"></div></body></html>", "Just a moment")?.blockType).toBe("captcha");
     expect(detectGenericBlock("<html><body>Too Many Requests</body></html>", "Error")?.blockType).toBe("rate_limit");
+    // Review round 3: phrases deep in an article are content, not an interstitial.
+    const longArticle = `<html><body><p>${"Background paragraph about API design. ".repeat(20)}</p><p>The API returned HTTP 429 when we hammered it; verify you are a human prompts followed.</p></body></html>`;
+    expect(detectGenericBlock(longArticle, "Blog")).toBeNull();
+    expect(detectGenericBlock("<html><body>x</body></html>", "429 Too Many Requests")?.blockType).toBe("rate_limit");
   });
 
   it("reports URLs that were not visited after a stop", async () => {
@@ -295,6 +333,11 @@ describe("generic browser observation of hostile pages", () => {
       "http://[::ffff:127.0.0.1]/",
       "http://10.0.0.5/",
       "http://metadata.google.internal/",
+      "http://[::127.0.0.1]/",
+      "http://[64:ff9b::a00:1]/",
+      "http://[fec0::1]/",
+      "http://198.18.0.1/",
+      "http://intranet/",
       "javascript:alert(document.cookie)",
       "file:///etc/passwd",
       "data:text/html,<script>1</script>",
@@ -388,8 +431,13 @@ describe("Reddit browser fallback keeps targets on reddit.com", () => {
     ].join("");
     const fake = { navigate: vi.fn(async () => ({ content: html, title: "search" })) };
     const threads = await new RedditBrowserAdapter(fake as any, "browser-fallback").searchThreads("browser agent");
+    // An absolute URL is normalised first ("%2e%2e" collapses to /settings),
+    // so the traversal entry no longer names a thread and is dropped.
     expect(threads.map((t) => t.title)).toEqual(["kept absolute", "kept relative"]);
-    for (const t of threads) expect(hostMatches(t.url, ["reddit.com"])).toBe(true);
+    expect(threads.map((t) => t.url)).toEqual([
+      "https://www.reddit.com/r/node/comments/abc/",
+      "https://www.reddit.com/r/node/comments/def/"
+    ]);
   });
 });
 
@@ -554,6 +602,9 @@ describe("artifact hygiene helpers", () => {
     expect(out).not.toContain(FIXTURE_EMAIL);
     expect(PrivacyChecker.redactDeep({ nested: { password: "hunter2-fixture", note: "Risk Ceiling: L3" } }))
       .toEqual({ nested: { password: "[REDACTED]", note: "Risk Ceiling: L3" } });
+    // Review round 3: key names must END in a credential word.
+    expect(PrivacyChecker.redactDeep({ session_mode: "headless", tokens_note: "x", cookie_banner: "dismissed", accessToken: "fixture-a", set_cookie: "fixture-b", sessionId: "fixture-c" }))
+      .toEqual({ session_mode: "headless", tokens_note: "x", cookie_banner: "dismissed", accessToken: "[REDACTED]", set_cookie: "[REDACTED]", sessionId: "[REDACTED]" });
   });
 
   it("keeps report.md from rendering untrusted content as live markdown", () => {
@@ -593,12 +644,24 @@ describe("artifact hygiene helpers", () => {
     expect(hostMatches("https://reddit.com.hostile-fixture.example/", ["reddit.com"])).toBe(false);
     expect(isSafePermalink("/r/node/comments/abc123/a_title/")).toBe(true);
     expect(isSafePermalink("@hostile-fixture.example/r/x/comments/1")).toBe(false);
-    expect(isSafePermalink("/r/node/comments/1/../../../evil")).toBe(false);
-    expect(isSafePermalink("/r/x/comments/1/%2e%2e/%2e%2e/%2e%2e/%2e%2e/settings")).toBe(false);
-    expect(isSafePermalink("/r/x/comments/1/.hidden")).toBe(false);
+    expect(isSafePermalink("//hostile-fixture.example/r/x/comments/1")).toBe(false);
+    // Only the validated prefix survives; slugs, traversal and queries are dropped.
+    expect(canonicalPermalink("/r/node/comments/1/../../../evil")).toBe("/r/node/comments/1/");
+    expect(canonicalPermalink("/r/x/comments/1/%2e%2e/%2e%2e/%2e%2e/%2e%2e/settings")).toBe("/r/x/comments/1/");
+    // Review round 3: non-ASCII / percent-encoded slugs are kept, not dropped.
+    expect(canonicalPermalink("/r/node/comments/abc/title_with_%C3%A9/")).toBe("/r/node/comments/abc/");
+    expect(canonicalPermalink("/r/node/comments/abc?x=1")).toBe("/r/node/comments/abc/");
+    expect(canonicalPermalink("/r/node/commentsX/abc")).toBeNull();
     // Review round 2: read verbs that mention a write noun stay read-only.
     for (const action of ["navigate_to_post", "screenshot_comments", "research_posts"]) {
       expect(classifyAction(action).level, action).toBe("L0");
     }
+    // Review round 3: a write noun is exempt only as the object of an earlier
+    // read/draft/prepare verb, never after a conjunction or as the first token.
+    for (const action of ["post_and_read", "research_and_post", "search_and_reply", "comment_then_view", "post_draft", "draft_and_post"]) {
+      expect(classifyAction(action).level, action).toBe("L4");
+    }
+    expect(classifyAction("prepare_reply").level).toBe("L3");
+    expect(classifyAction("fill_comment_box").level).toBe("L3");
   });
 });

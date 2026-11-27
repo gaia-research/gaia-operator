@@ -6,22 +6,20 @@ function getTransparentUserAgent(): string {
     "GaiaOperator/0.1.0 (+https://github.com/gaia-research/gaia-operator; public-community-research; contact=unset)";
 }
 
-// No "%" (percent-encoded "%2e%2e" is a dot segment to the URL parser) and no
-// segment may start with ".".
-const SAFE_PERMALINK = /^\/r\/[A-Za-z0-9_]{1,64}\/comments\/[A-Za-z0-9_]+(?:\/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\/?$/;
+// Only the /r/<sub>/comments/<id> prefix is trusted. Everything after it
+// (title slug, query, fragment, "%2e%2e" or other dot segments) is discarded
+// and the URL is rebuilt from the two validated parts, so threads with
+// non-ASCII slugs are kept and nothing can steer the path or host.
+const PERMALINK_PREFIX = /^\/r\/([A-Za-z0-9_]{1,64})\/comments\/([A-Za-z0-9]{1,16})(?:[/?#]|$)/;
+
+export function canonicalPermalink(permalink: unknown): string | null {
+  if (typeof permalink !== "string") return null;
+  const match = permalink.match(PERMALINK_PREFIX);
+  return match ? `/r/${match[1]}/comments/${match[2]}/` : null;
+}
 
 export function isSafePermalink(permalink: unknown): permalink is string {
-  if (typeof permalink !== "string" || !SAFE_PERMALINK.test(permalink)) {
-    return false;
-  }
-  // Belt and braces: the joined URL must stay on www.reddit.com with the same
-  // normalised path.
-  try {
-    const joined = new URL(`https://www.reddit.com${permalink}`);
-    return joined.hostname === "www.reddit.com" && joined.pathname === permalink;
-  } catch {
-    return false;
-  }
+  return canonicalPermalink(permalink) !== null;
 }
 
 export class RedditApiAdapter {
@@ -82,7 +80,7 @@ export class RedditApiAdapter {
             subreddit: String(d.subreddit || "unknown"),
             selftext: String(d.selftext || ""),
             score: Number(d.score || 0),
-            url: `https://www.reddit.com${d.permalink}`,
+            url: `https://www.reddit.com${canonicalPermalink(d.permalink)}`,
             author: String(d.author || "unknown"),
             num_comments: Number(d.num_comments || 0),
             created_utc: Number(d.created_utc || 0)

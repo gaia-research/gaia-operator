@@ -64,6 +64,15 @@ const INTERACTION_VERBS = new Set([
   "modify", "rename", "move", "remove", "open", "login", "logout", "signin", "signup", "authorize"
 ]);
 
+const CONJUNCTIONS = new Set(["and", "then", "plus", "also", "or"]);
+
+// Verbs that may take a write noun as their object without performing it.
+const NOUN_QUALIFIERS = new Set([
+  ...READ_QUALIFIERS,
+  ...L0_OBSERVE_TOKENS,
+  "draft", "prepare", "fill", "review"
+]);
+
 const L1_TOKENS = new Set(["summarize", "classify", "score", "extract", "save", "report"]);
 
 export function classifyAction(action: string): ActionClassification {
@@ -96,13 +105,24 @@ export function classifyAction(action: string): ActionClassification {
 
   const hasDraft = has("draft");
   const hasWriteVerb = hasAny(WRITE_VERBS);
-  const hasWriteNoun = hasAny(WRITE_NOUNS);
+  // A write noun is exempt only as the object of an EARLIER read/draft/
+  // prepare verb with no conjunction in between: "draft_reply",
+  // "summarize_comments", "navigate_to_post" are not writes; "post_draft",
+  // "research_and_post", "comment_then_view" are.
+  const unexemptedWriteNoun = tokens.some((t, i) => {
+    if (!WRITE_NOUNS.has(t)) return false;
+    for (let j = i - 1; j >= 0; j--) {
+      if (CONJUNCTIONS.has(tokens[j])) return true;
+      if (NOUN_QUALIFIERS.has(tokens[j])) return false;
+    }
+    return true;
+  });
   const platformAction = tokens.some(
     (t, i) => PLATFORM_ACTION_VERBS.has(t) && tokens.slice(i + 1).some((n) => PLATFORM_OBJECTS.has(n))
   );
 
   // L4: Public write / irreversible action
-  if (platformAction || hasWriteVerb || (hasWriteNoun && !hasDraft && !hasAny(READ_QUALIFIERS) && !hasAny(L0_OBSERVE_TOKENS))) {
+  if (platformAction || hasWriteVerb || unexemptedWriteNoun) {
     return { level: "L4", recognized: true };
   }
 

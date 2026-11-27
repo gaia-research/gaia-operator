@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { checkNavigableUrl, isNonPublicHost } from "../../policies/url-policy.js";
 
 export class PlaywrightAdapter {
   private browser: any = null;
@@ -42,6 +43,11 @@ export class PlaywrightAdapter {
     url: string,
     screenshotDir?: string
   ): Promise<{ content: string; title: string; screenshotPath?: string }> {
+    const requested = checkNavigableUrl(url);
+    if (!requested.ok) {
+      throw new Error(`Navigation refused: ${requested.reason}`);
+    }
+
     if (this.isMock) {
       return this.simulatedNavigate(url);
     }
@@ -52,7 +58,33 @@ export class PlaywrightAdapter {
 
     const page = await this.context.newPage();
     try {
+      // Page-initiated requests (subresources, frames, fetch/XHR) may not reach
+      // loopback, private, link-local or metadata hosts.
+      await page.route("**/*", (route: any) => {
+        const reqUrl: string = route.request().url();
+        try {
+          const target = new URL(reqUrl);
+          if ((target.protocol === "http:" || target.protocol === "https:") && isNonPublicHost(target.hostname)) {
+            return route.abort("blockedbyclient");
+          }
+        } catch {
+          return route.abort("blockedbyclient");
+        }
+        return route.continue();
+      });
+
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+
+      // Playwright routes only the first URL of a redirect chain, so check
+      // where the page actually landed. A public URL that redirects to a
+      // private host is refused: no content, title or screenshot is kept.
+      // (The redirect hop itself has already been requested; see
+      // docs/capability-boundary.md, Known limits.)
+      const landed = checkNavigableUrl(page.url());
+      if (!landed.ok) {
+        throw new Error(`Navigation refused after redirect: ${landed.reason}`);
+      }
+
       const content = await page.content();
       const title = await page.title();
 

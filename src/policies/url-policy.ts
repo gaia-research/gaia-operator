@@ -36,23 +36,17 @@ export function checkNavigableUrl(raw: string): UrlCheck {
 
 /**
  * Literal-address and reserved-name check. The URL parser has already
- * normalised numeric forms ("2130706433", "0x7f.1") to dotted IPv4. This does
- * not resolve DNS, so a public name pointing at a private address is not
- * caught here.
+ * normalised numeric forms ("2130706433", "0x7f.1") to dotted IPv4 and IPv6 to
+ * compressed hex. This does not resolve DNS, so a public name pointing at a
+ * private address is not caught here.
  */
 export function isNonPublicHost(rawHost: string): boolean {
   const host = rawHost.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
   if (!host) return true;
 
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    host.endsWith(".home.arpa") ||
-    host === "metadata.google.internal"
-  ) {
-    return true;
+  if (host.includes(":")) {
+    const hextets = expandIPv6(host);
+    return hextets === null ? true : isNonPublicIPv6(hextets);
   }
 
   const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -60,37 +54,72 @@ export function isNonPublicHost(rawHost: string): boolean {
     return isNonPublicIPv4(v4.slice(1).map(Number));
   }
 
-  if (host.includes(":")) {
-    // IPv4-mapped IPv6 (::ffff:a.b.c.d or ::ffff:7f00:1)
-    const mappedDotted = host.match(/^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (mappedDotted) return isNonPublicIPv4(mappedDotted.slice(1).map(Number));
-    const mappedHex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (mappedHex) {
-      const hi = parseInt(mappedHex[1], 16);
-      const lo = parseInt(mappedHex[2], 16);
-      return isNonPublicIPv4([hi >> 8, hi & 0xff, lo >> 8, lo & 0xff]);
-    }
-    if (host === "::1" || host === "::") return true;
-    const first = parseInt(host.split(":")[0] || "0", 16);
-    if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
-    if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
-    return false;
-  }
-
-  return false;
+  // Single-label names ("intranet", "router") only resolve on local search
+  // domains; reserved suffixes are internal by definition.
+  if (!host.includes(".")) return true;
+  return (
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".intranet") ||
+    host.endsWith(".lan") ||
+    host.endsWith(".home.arpa")
+  );
 }
 
-function isNonPublicIPv4([a, b]: number[]): boolean {
+function isNonPublicIPv4([a, b, c]: number[]): boolean {
   return (
     a === 0 ||
     a === 10 ||
     a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127) ||     // CGNAT
+    (a === 169 && b === 254) ||               // link-local / cloud metadata
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    a >= 224
+    (a === 192 && b === 0 && (c === 0 || c === 2)) || // IETF protocol / TEST-NET-1
+    (a === 198 && (b === 18 || b === 19)) ||  // benchmarking
+    (a === 198 && b === 51 && c === 100) ||   // TEST-NET-2
+    (a === 203 && b === 0 && c === 113) ||    // TEST-NET-3
+    a >= 224                                  // multicast / reserved / broadcast
   );
+}
+
+function expandIPv6(host: string): number[] | null {
+  let text = host.split("%")[0];
+  // Trailing dotted IPv4 ("::ffff:1.2.3.4") -> two hextets.
+  const dotted = text.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(2).map(Number);
+    text = `${dotted[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (halves.length === 1 && head.length !== 8)) return null;
+  const parts = [...head, ...Array(fill).fill("0"), ...tail];
+  if (parts.length !== 8 || parts.some((p) => !/^[0-9a-f]{1,4}$/.test(p))) return null;
+  return parts.map((p) => parseInt(p, 16));
+}
+
+function isNonPublicIPv6(h: number[]): boolean {
+  const embeddedV4 = () => [h[6] >> 8, h[6] & 0xff, h[7] >> 8, h[7] & 0xff];
+  const firstFiveZero = h.slice(0, 5).every((x) => x === 0);
+
+  if (h.every((x) => x === 0)) return true;                                   // ::
+  if (firstFiveZero && h[5] === 0 && h[6] === 0 && h[7] === 1) return true;   // ::1
+  if (firstFiveZero && h[5] === 0xffff) return isNonPublicIPv4(embeddedV4()); // ::ffff:a.b.c.d
+  if (firstFiveZero && h[5] === 0) return true;                               // deprecated ::a.b.c.d
+  if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0)) {
+    return isNonPublicIPv4(embeddedV4());                                     // NAT64 64:ff9b::/96
+  }
+  if ((h[0] & 0xfe00) === 0xfc00) return true;  // fc00::/7 unique local
+  if ((h[0] & 0xffc0) === 0xfe80) return true;  // fe80::/10 link-local
+  if ((h[0] & 0xffc0) === 0xfec0) return true;  // fec0::/10 site-local (deprecated)
+  if ((h[0] & 0xff00) === 0xff00) return true;  // ff00::/8 multicast
+  if (h[0] === 0x2001 && h[1] === 0x0db8) return true; // documentation
+  return false;
 }
 
 export function hostMatches(raw: string, domains: string[]): boolean {

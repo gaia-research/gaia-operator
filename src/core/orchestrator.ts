@@ -11,6 +11,7 @@ import { MarketingTasksAdapter } from "../adapters/filesystem/marketing-tasks-ad
 import { RedditResearchHarness } from "../harnesses/reddit-research/index.js";
 import { GenericBrowserHarness } from "../harnesses/generic-browser/index.js";
 import { ApprovalGates } from "./approval-gates.js";
+import { inlineText, fencedText } from "./safe-text.js";
 import { BlockedSessionError, PolicyViolationError } from "./errors.js";
 
 dotenv.config();
@@ -117,7 +118,7 @@ export class Orchestrator {
       status = "failed";
       recorder.fail(err.message);
       console.error(`[Orchestrator] Run error: ${err.message}`, err.stack);
-      reportContent = `# Task Failed: ${task.title}\n\nError details:\n\`\`\`\n${err.message}\n\`\`\``;
+      reportContent = `# Task Failed: ${inlineText(task.title)}\n\nError details:\n${fencedText(String(err?.message ?? err))}`;
     } finally {
       await browserAdapter.close();
     }

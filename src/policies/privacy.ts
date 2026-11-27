@@ -81,7 +81,10 @@ export class PrivacyChecker {
   }
 }
 
-const SECRET_KEY_NAME = /(password|passwd|secret|token|api[_-]?key|authorization|cookie|session|credential|private[_-]?key)/i;
+// The key name must END in a credential word (snake, kebab or camelCase):
+// "accessToken", "client_secret", "set-cookie" are blanked; "session_mode",
+// "cookie_banner", "max_tokens" are evidence and kept.
+const SECRET_KEY_NAME = /(password|passwd|secret|token|api[_-]?key|authorization|cookies?|session[_-]?id|credentials?|private[_-]?key)$/i;
 
 function redactValue(value: unknown, keyName: string | undefined): unknown {
   if (typeof value === "string") {

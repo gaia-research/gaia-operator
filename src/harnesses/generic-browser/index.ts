@@ -31,7 +31,9 @@ export function detectGenericBlock(
   html: string,
   title: string
 ): { blockType: BlockedState["block_type"]; description: string } | null {
-  const text = `${title} ${visibleText(html)}`;
+  // Interstitials say so up front; an article that mentions "HTTP 429" or
+  // "verify you are a human" further down is content, not a block.
+  const text = `${title} ${visibleText(html).trim().slice(0, 300)}`;
   if (CHALLENGE_MARKUP.test(html) || CHALLENGE_PHRASES.test(text)) {
     return { blockType: "captcha", description: "CAPTCHA or human-verification challenge detected." };
   }
