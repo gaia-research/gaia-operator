@@ -3,6 +3,7 @@ import { PlatformPolicyRegistry } from "../policies/platform-policy-registry.js"
 import { isActionAllowed, RISK_VALUES } from "../policies/action-risk.js";
 import { RateBudgetManager } from "../policies/rate-budget.js";
 import { PolicyViolationError } from "./errors.js";
+import { isConstraintRequested } from "../policies/constraint-intent.js";
 
 const PUBLIC_ACTION_FLAGS = [
   "post",
@@ -60,7 +61,7 @@ export class PolicyEngine {
       const config = PlatformPolicyRegistry.getPlatformConfig(platform);
 
       for (const blocked of config.blockedActions) {
-        if (task.constraints[blocked] === true) {
+        if (isConstraintRequested(task.constraints[blocked])) {
           throw new PolicyViolationError(
             `Task requests constraint '${blocked}' which is blocked on platform '${platform}'.`,
             "L5",
@@ -147,7 +148,7 @@ export class PolicyEngine {
 
   private validateConstraintIntent(task: OperatorTask): void {
     for (const key of ALWAYS_BLOCKED_CONSTRAINTS) {
-      if (task.constraints[key] === true) {
+      if (isConstraintRequested(task.constraints[key])) {
         throw new PolicyViolationError(
           `Task constraint '${key}' requests prohibited automation and is always blocked.`,
           "L5",
@@ -160,7 +161,7 @@ export class PolicyEngine {
       for (const flag of PUBLIC_ACTION_FLAGS) {
         const allowKey = `allow_${flag}`;
         const autoKey = `auto_${flag}`;
-        if (task.constraints[allowKey] === true || task.constraints[autoKey] === true) {
+        if (isConstraintRequested(task.constraints[allowKey]) || isConstraintRequested(task.constraints[autoKey])) {
           throw new PolicyViolationError(
             `Task constraint '${allowKey}'/'${autoKey}' conflicts with ENABLE_PUBLIC_WRITE=false. Public actions are draft-only in MVP.`,
             "L4",

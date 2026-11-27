@@ -33,6 +33,9 @@ export class Orchestrator {
     const reqL3 = process.env.REQUIRE_APPROVAL_FOR_L3 !== "false";
     const reqL4 = process.env.REQUIRE_APPROVAL_FOR_L4 !== "false";
     this.approvalGates = new ApprovalGates(reqL3, reqL4);
+    if (this.approvalGates.l4OverrideIgnored) {
+      console.warn("[Orchestrator] REQUIRE_APPROVAL_FOR_L4=false is ignored: L4/L5 actions always require per-action human approval.");
+    }
   }
 
   async runTask(taskFile: string): Promise<ResultSummary> {
@@ -100,6 +103,7 @@ export class Orchestrator {
         const res = await genericHarness.execute(task, recorder, screenshotDir);
         findings = res.findings;
         reportContent = res.reportContent;
+        blockedState = res.blockedState;
       }
 
       if (blockedState) {
