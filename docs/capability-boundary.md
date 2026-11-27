@@ -18,7 +18,7 @@ approval or selects a stronger credential.
 
 | Level | Capability | Approval | Runtime rule |
 |---|---|---|---|
-| L0 | Passive observation of public pages (`read`, `navigate`, `search`, `inspect`, `screenshot`) | none | Only http(s) URLs without embedded credentials on public hosts; loopback/private/link-local/metadata hosts and account paths (inbox, messages, settings, …) on known platforms refused. |
+| L0 | Passive observation of public pages (`read`, `navigate`, `search`, `inspect`, `screenshot`) | none | Only http(s) URLs without embedded credentials on public hosts; loopback/private/link-local/metadata hosts and per-platform account routes (Reddit `/message`, `/settings`, `/account`; GitHub `/settings`, `/notifications`; LinkedIn `/messaging`; Discord `/channels/@me`; …) refused. |
 | L1 | Local extraction, scoring, reports | none | Read-only bookkeeping; recordable at any ceiling. |
 | L2 | Private drafting | none | Must be within the task ceiling. |
 | L3 | Prepared interaction (fill, prepare, handoff) | required by default (`REQUIRE_APPROVAL_FOR_L3`) | Must be within the task ceiling; platform defaults cap it further. |
@@ -37,8 +37,8 @@ approval or selects a stronger credential.
 | URLs are parsed, never substring-matched. Only http(s) to public hosts: loopback, RFC 1918, CGNAT, link-local/metadata, benchmarking and documentation ranges, IPv6 ULA/link-local/site-local/multicast, IPv4-mapped/-compatible and NAT64 forms of those, single-label names and `.local`/`.internal`/`.svc`/`.corp`-style suffixes are refused. Platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
 | Reddit thread URLs are rebuilt from a validated `/r/<sub>/comments/<id>` prefix only; the slug, query and any `%2e%2e`/dot segments are discarded, and anything without that prefix is dropped. Browser-fallback URLs must also be https on reddit.com. | `src/adapters/reddit/reddit-api-adapter.ts`, `reddit-browser-adapter.ts` |
 | Mobile handoff targets must be public threads (never DM compose, inbox or settings pages); every guardrail (target URL, platform, constraints, draft) is re-run on the current task file immediately before opening the URL, not only at prepare time. | `src/harnesses/mobile-handoff/index.ts` |
-| The browser adapter refuses a non-public URL before navigating; aborts requests and WebSockets to non-public hosts from every page in the context (popups included) and blocks service workers; and discards a page that redirected to a non-public host or a platform account path, checking both before and after capture; a move to another origin during capture also discards it (no content, title or screenshot kept). | `src/adapters/browser/playwright-adapter.ts` |
-| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals, and only on a near-empty interstitial page (challenge-widget or Cloudflare challenge-platform markup, or a phrase such as "Just a moment...", "Verifying you are human" or "Too Many Requests"), so articles and forms that mention or embed these do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
+| The browser adapter refuses a non-public URL before navigating; aborts requests and WebSockets to non-public hosts from every page in the context (popups included) and blocks service workers; and discards a page that redirected to a non-public host or a platform account path, checking both before and after capture; a move to another origin during capture also discards it (no content, title or screenshot kept). These refusals are blocked states (a login/account redirect reports `login`), so the run stops with human guidance instead of failing. | `src/adapters/browser/playwright-adapter.ts` |
+| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals, and only on a near-empty interstitial page (challenge-widget or Cloudflare challenge-orchestrator markup, or a phrase such as "Just a moment...", "Verifying you are human" or "Too Many Requests"), so articles and forms that mention or embed these do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
 | A blocked adapter never authorises trying a more powerful one (Hermes CUA remains gated). | `src/adapters/computer-use/hermes-cua-adapter.ts` |
 
 ## Credentials and artifacts
@@ -59,6 +59,9 @@ approval or selects a stronger credential.
   blockquoted line by line, `\`, `<`, `[` and `]` are escaped (no HTML comments,
   tags, links or remote images that hide content or load on preview), and CSV cells are neutralised against spreadsheet
   formula injection. Content cannot forge a checked approval box.
+- Redaction and visible-text extraction run in linear time on hostile input
+  (private-key blocks and tags are scanned, not backtracked; other patterns
+  have bounded quantifiers).
 - Redaction is defence in depth, not permission to publish an artifact unread.
   Screenshots are not redacted; review them before sharing.
 

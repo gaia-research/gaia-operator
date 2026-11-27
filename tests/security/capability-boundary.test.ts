@@ -22,6 +22,7 @@ import { TraceRecorder } from "../../src/core/trace-recorder.js";
 import { ApprovalGates } from "../../src/core/approval-gates.js";
 import { TaskLoader } from "../../src/core/task-loader.js";
 import { StateStore, resolveContained } from "../../src/core/state-store.js";
+import { BlockedSessionError } from "../../src/core/errors.js";
 import { csvCell, fencedText, inlineText } from "../../src/core/artifact-writer.js";
 import { Orchestrator } from "../../src/core/orchestrator.js";
 import { GenericBrowserHarness, visibleText, detectGenericBlock } from "../../src/harnesses/generic-browser/index.js";
@@ -284,7 +285,9 @@ describe("generic browser observation of hostile pages", () => {
       const adapter = new PlaywrightAdapter();
       (adapter as any).context = { newPage: async () => fakePage };
 
-      await expect(adapter.navigate("https://hostile-fixture.example/redirect", sandbox), landed).rejects.toThrow(/after redirect/);
+      // Review round 8: refusals are blocked states, so harnesses report them
+      // with human guidance instead of failing the whole task.
+      await expect(adapter.navigate("https://hostile-fixture.example/redirect", sandbox), landed).rejects.toBeInstanceOf(BlockedSessionError);
       expect(fakePage.content).not.toHaveBeenCalled();
       expect(fakePage.screenshot).not.toHaveBeenCalled();
       expect(fakePage.close).toHaveBeenCalled();
@@ -354,6 +357,8 @@ describe("generic browser observation of hostile pages", () => {
     const body = "<p>" + "Contact us about the project, roadmap and documentation. ".repeat(20) + "</p>";
     expect(detectGenericBlock(`<html><body>${body}<div class="g-recaptcha"></div></body></html>`, "Contact")).toBeNull();
     expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Handling HTTP 429 Too Many Requests")).toBeNull();
+    // Review round 8: Cloudflare's bot-detection script on an ordinary short page is not a challenge.
+    expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script></head><body><div id=\"root\">App</div></body></html>", "App")).toBeNull();
     // Review round 5: current Cloudflare managed-challenge interstitial.
     expect(detectGenericBlock("<html><body><p>Verifying you are human. This may take a few seconds.</p></body></html>", "Just a moment...")?.blockType).toBe("captcha");
     expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1\"></script></head><body></body></html>", "x")?.blockType).toBe("captcha");
@@ -376,6 +381,13 @@ describe("generic browser observation of hostile pages", () => {
     expect(isPrivateAccountUrl("https://www.reddit.com/r/settingsfans/comments/1/")).toBe(false);
     expect(isPrivateAccountUrl("https://www.reddit.com/message/inbox/")).toBe(true);
     expect(isPrivateAccountUrl("https://x.com/settings/account")).toBe(true);
+    // Review round 8: route prefixes per platform, not any segment anywhere.
+    expect(isPrivateAccountUrl("https://www.reddit.com/r/LocalLLaMA/comments/1abc2d/chat/")).toBe(false);
+    expect(isPrivateAccountUrl("https://github.com/acme/chat")).toBe(false);
+    expect(isPrivateAccountUrl("https://github.com/microsoft/vscode/tree/main/src/vs/platform/settings")).toBe(false);
+    expect(isPrivateAccountUrl("https://github.com/settings/tokens")).toBe(true);
+    expect(isPrivateAccountUrl("https://www.reddit.com/account/login/?dest=x")).toBe(true);
+    expect(isPrivateAccountUrl("https://www.reddit.com/user/someone/saved/")).toBe(true);
     // Review round 6: main DM routes.
     expect(isPrivateAccountUrl("https://www.linkedin.com/messaging/thread/123/")).toBe(true);
     expect(isPrivateAccountUrl("https://discord.com/channels/@me/123")).toBe(true);
@@ -667,6 +679,24 @@ describe("mobile handoff never opens a hostile target", () => {
 });
 
 describe("artifact hygiene helpers", () => {
+  it("redacts hostile input in linear time", () => {
+    // Review round 8: a BEGIN line followed by blank lines backtracked
+    // exponentially; email/userinfo patterns were quadratic on long runs.
+    const shapes = [
+      "-----BEGIN PRIVATE KEY-----" + "\n    ".repeat(5000) + "\nx",
+      "a-".repeat(20000),
+      "a://".repeat(10000),
+      "<".repeat(40000),
+      "<script".repeat(6000)
+    ];
+    const t0 = Date.now();
+    for (const shape of shapes) {
+      PrivacyChecker.filterSensitiveData(shape);
+      visibleText(shape);
+    }
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
   it("redacts precisely: secrets out, ordinary research prose intact", () => {
     // Review round 1: these were over- or under-redacted.
     const keyed = PrivacyChecker.filterSensitiveData("https://maps.example/x?key=AIzaFIXTUREFIXTURE123&q=1");
@@ -768,6 +798,8 @@ describe("artifact hygiene helpers", () => {
     // Review round 7: pre-escaped brackets cannot cancel the added escape.
     expect(inlineText("\\[Approve\\](https://hostile-fixture.example/p)")).toBe("\\\\\\[Approve\\\\\\](https://hostile-fixture.example/p)");
     expect(quotedBlock("Approved\n===")).toBe("> Approved\n> \\===");
+    // Review round 8: a lone CR is a CommonMark line ending too.
+    expect(quotedBlock("ok\r## Approved\r- [x] Approve as-is")).toBe("> ok\n> \\## Approved\n> \\- \\[x\\] Approve as-is");
   });
 
   it("keeps untrusted text from forging markdown or spreadsheet structure", () => {
@@ -830,6 +862,9 @@ describe("artifact hygiene helpers", () => {
     expect(classifyAction("search_users_to_block").level).toBe("L4");
     expect(classifyAction("read_inbox_and_send_reply").level).toBe("L5");
     expect(classifyAction("send_dm").level).toBe("L4");
+    // Review round 8: generating a reply is drafting (L2), not local processing.
+    expect(classifyAction("generate_reply").level).toBe("L2");
+    expect(isActionAllowed("generate_reply", "L1").allowed).toBe(false);
     for (const action of ["search_post_reply", "read_to_reply", "navigate_to_post_comment", "list_posts_comment_on_each", "navigate_to_post"]) {
       expect(classifyAction(action).level, action).toBe("L4");
       expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);

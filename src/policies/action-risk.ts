@@ -140,8 +140,8 @@ export function classifyAction(action: string): ActionClassification {
     return { level: "L3", recognized: true };
   }
 
-  // L2: Private drafting
-  if (has("draft")) {
+  // L2: Private drafting ("generate_reply" drafts a reply just as "draft_reply" does)
+  if (has("draft") || (has("generate") && hasAny(WRITE_NOUNS))) {
     return { level: "L2", recognized: true };
   }
 

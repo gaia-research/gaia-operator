@@ -18,34 +18,71 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   [/\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\b/g, "[TOKEN_REDACTED]"],
   // JSON Web Tokens
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[TOKEN_REDACTED]"],
-  // Private key blocks. The body may only be base64 lines (indentation,
-  // trailing spaces, blank lines and PEM "Name: value" headers allowed), so a
-  // BEGIN in one field can never consume unrelated prose up to an END
-  // elsewhere; an unterminated block still loses its key material.
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[ \t]*(?:\r?\n[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]+:[^\r\n]*)?[ \t]*)*?(?:\r?\n[ \t]*-----END [A-Z ]*PRIVATE KEY-----)/g, "[PRIVATE_KEY_REDACTED]"],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[ \t]*(?:\r?\n[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]+:[^\r\n]*)[ \t]*)*/g, "[PRIVATE_KEY_REDACTED]"],
   // Credentials embedded in URLs (scheme://user:pass@host)
-  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/?#@]+@/gi, "$1[REDACTED]@"],
+  // (Quantifiers are bounded: unbounded runs make these quadratic on long
+  // hyphen/dot chains in untrusted text.)
+  [/\b([a-z][a-z0-9+.-]{0,30}:\/\/)[^\s\/?#@]{1,256}@/gi, "$1[REDACTED]@"],
   // Cookie headers
   [/\b(Cookie|Set-Cookie)[ \t]*:[ \t]*[^\s][^\r\n]*/gi, "$1: [REDACTED]"]
 ];
 
+const PEM_BEGIN = /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----/g;
+const PEM_END = /^[ \t]*-----END [A-Z ]{0,40}PRIVATE KEY-----/;
+const PEM_BODY_LINE = /^[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]{1,40}:[^\r\n]*)?[ \t]*$/;
+
+/**
+ * Linear line scanner for private-key blocks. The body may only be base64
+ * lines (indentation, trailing spaces, blank lines and PEM "Name: value"
+ * headers allowed), so a BEGIN in one field can never consume unrelated prose
+ * up to an END elsewhere, and an unterminated block still loses its key
+ * material. A regex with optional whitespace on both sides of each body line
+ * backtracks exponentially on blank lines; this does not.
+ */
+function redactPrivateKeys(text: string): string {
+  if (!text.includes("PRIVATE KEY-----")) return text;
+  let out = "";
+  let cursor = 0;
+  PEM_BEGIN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = PEM_BEGIN.exec(text)) !== null) {
+    out += text.slice(cursor, match.index);
+    let end = match.index + match[0].length;
+    // Consume the rest of the BEGIN line.
+    const beginLineEnd = text.indexOf("\n", end);
+    end = beginLineEnd === -1 ? text.length : beginLineEnd;
+    while (end < text.length) {
+      const next = text.indexOf("\n", end + 1);
+      const line = text.slice(end + 1, next === -1 ? text.length : next).replace(/\r$/, "");
+      if (PEM_END.test(line)) {
+        end = next === -1 ? text.length : next;
+        break;
+      }
+      if (!PEM_BODY_LINE.test(line)) break;
+      end = next === -1 ? text.length : next;
+    }
+    out += "[PRIVATE_KEY_REDACTED]";
+    cursor = end;
+    PEM_BEGIN.lastIndex = Math.max(end, match.index + 1);
+  }
+  return out + text.slice(cursor);
+}
+
 export class PrivacyChecker {
   static filterSensitiveData(text: string): string {
-    let scrubbed = text;
+    let scrubbed = redactPrivateKeys(text);
 
     for (const [pattern, replacement] of TOKEN_PATTERNS) {
       scrubbed = scrubbed.replace(pattern, replacement);
     }
 
     // Scrub emails
-    scrubbed = scrubbed.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[EMAIL_REDACTED]");
+    scrubbed = scrubbed.replace(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,253}\.[a-zA-Z]{2,24}/g, "[EMAIL_REDACTED]");
 
     // Scrub credential-named key/value pairs. The name must END in a
     // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
     // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b([A-Za-z0-9_-]*?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)[ \t]*[:=][ \t]*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
+      /\b([A-Za-z0-9_-]{0,64}?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)[ \t]*[:=][ \t]*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
       (_m, name: string, quote: string, value: string) => {
         const q = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : "";
         return `${name}${quote}${quote ? ": " : "="}${q}[REDACTED]${q}`;

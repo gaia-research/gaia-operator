@@ -11,19 +11,47 @@ import { inlineText } from "../../core/safe-text.js";
  * what the page actually shows.
  */
 export function visibleText(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ");
+  // Linear scan (regex tag stripping is quadratic on runs of "<" in hostile
+  // pages). Unterminated tags, comments and raw-text elements drop the rest.
+  const lower = html.toLowerCase();
+  let out = "";
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt === -1) {
+      out += html.slice(i);
+      break;
+    }
+    out += html.slice(i, lt) + " ";
+    if (lower.startsWith("<!--", lt)) {
+      const close = html.indexOf("-->", lt + 4);
+      if (close === -1) break;
+      i = close + 3;
+      continue;
+    }
+    const gt = html.indexOf(">", lt + 1);
+    if (gt === -1) break;
+    const rawText = /^<(script|style|noscript|template)\b/.exec(lower.slice(lt, Math.min(gt + 1, lt + 12)));
+    if (rawText) {
+      const close = lower.indexOf(`</${rawText[1]}`, gt + 1);
+      if (close === -1) break;
+      const closeGt = html.indexOf(">", close);
+      if (closeGt === -1) break;
+      i = closeGt + 1;
+      continue;
+    }
+    i = gt + 1;
+  }
+  return out.replace(/&nbsp;/gi, " ").replace(/\s+/g, " ");
 }
 
 // Generic observation visits arbitrary public pages, where words such as
 // "captcha", "rate limit" or "banned" are ordinary article content. Stop only
 // on structural signals: a challenge widget in the markup, or a challenge /
-// 429 interstitial phrase in the title or visible text.
-const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)|\/cdn-cgi\/challenge-platform\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
+// 429 interstitial phrase in the title or visible text. (Cloudflare's
+// "/cdn-cgi/challenge-platform/scripts/jsd/" bot-detection script is injected
+// into ordinary pages and is not a challenge; only the "/h/" orchestrator is.)
+const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)|\/cdn-cgi\/challenge-platform\/h\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
 const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b|^\s*just a moment\.\.\./i;
 const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
 

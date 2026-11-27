@@ -39,7 +39,7 @@ export function fencedText(value: string | undefined, info = "text"): string {
 // Prefix every line, so multi-line content stays inside the blockquote.
 export function quotedBlock(value: string | undefined): string {
   return escapeHtml(PrivacyChecker.filterSensitiveData(value ?? ""))
-    .split(/\r?\n|\u2028|\u2029/)
+    .split(/\r\n|\r|\n|\u2028|\u2029/)
     // Escape block markers, and setext underlines (=== / ---) that would turn
     // the previous line into a heading.
     .map((line) => `> ${line.replace(/^(\s*)([#>]|[-*+]\s|\d+[.)]\s|=+\s*$|-+\s*$)/, "$1\\$2")}`)

@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { checkNavigableUrl, isNonPublicHost, isPrivateAccountUrl } from "../../policies/url-policy.js";
+import { BlockedSessionError } from "../../core/errors.js";
 
 export function isBlockedRequestUrl(raw: string): boolean {
   try {
@@ -95,11 +96,13 @@ export class PlaywrightAdapter {
       const assertLanded = (stage: string): string => {
         const landedUrl = page.url();
         const landed = checkNavigableUrl(landedUrl);
+        // Blocked states, not plain failures: harnesses turn these into a
+        // blocked-state report with human guidance (e.g. a login redirect).
         if (!landed.ok) {
-          throw new Error(`Navigation refused after redirect (${stage}): ${landed.reason}`);
+          throw new BlockedSessionError(`Navigation refused after redirect (${stage}): ${landed.reason}`, "policy_unclear", url);
         }
         if (isPrivateAccountUrl(landedUrl)) {
-          throw new Error(`Navigation refused after redirect (${stage}): landed on private/account content.`);
+          throw new BlockedSessionError(`Navigation refused after redirect (${stage}): landed on login/private/account content.`, "login", url);
         }
         return landedUrl;
       };
@@ -126,7 +129,7 @@ export class PlaywrightAdapter {
         // normal; moving to another origin means the capture may not belong
         // to the page that was checked.
         if (new URL(landedAfter).origin !== new URL(landedBefore).origin) {
-          throw new Error("Navigation refused: page moved to another origin during capture.");
+          throw new BlockedSessionError("Navigation refused: page moved to another origin during capture.", "policy_unclear", url);
         }
       } catch (err) {
         if (screenshotPath) fs.rmSync(screenshotPath, { force: true });

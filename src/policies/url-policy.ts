@@ -148,24 +148,33 @@ export function hostMatches(raw: string, domains: string[]): boolean {
   });
 }
 
-// Account/private routes on the platforms Operator works with. Matched as
-// whole path segments on those hosts only, so a docs page at
-// ".../topics/settings/" on another site is still public content.
-const PLATFORM_DOMAINS = [
-  "reddit.com", "x.com", "twitter.com", "linkedin.com", "github.com",
-  "discord.com", "discordapp.com", "youtube.com", "ycombinator.com"
+// Account/private routes on the platforms Operator works with, as route
+// prefixes per platform (not any segment anywhere: a Reddit thread slug
+// "/chat/" or a GitHub repo named "settings" is public content).
+type RouteRule = (segments: string[]) => boolean;
+const first = (names: string[]): RouteRule => (seg) => names.includes(seg[0] ?? "");
+
+const PLATFORM_PRIVATE_ROUTES: Array<{ domains: string[]; rule: RouteRule }> = [
+  {
+    domains: ["reddit.com"],
+    rule: (seg) =>
+      first(["message", "messages", "settings", "prefs", "account", "chat", "notifications", "inbox", "login", "register"])(seg) ||
+      (seg[0] === "user" && ["saved", "hidden", "upvoted", "downvoted"].includes(seg[2] ?? ""))
+  },
+  { domains: ["x.com", "twitter.com"], rule: (seg) => first(["messages", "settings", "notifications", "login", "account"])(seg) || (seg[0] === "i" && ["bookmarks", "notifications", "flow", "account_access"].includes(seg[1] ?? "")) },
+  { domains: ["linkedin.com"], rule: first(["messaging", "settings", "psettings", "notifications", "mynetwork", "login", "checkpoint"]) },
+  { domains: ["github.com"], rule: first(["settings", "notifications", "login", "sessions"]) },
+  { domains: ["discord.com", "discordapp.com"], rule: (seg) => (seg[0] === "channels" && seg[1] === "@me") || first(["login", "settings"])(seg) },
+  { domains: ["youtube.com"], rule: (seg) => first(["account"])(seg) || (seg[0] === "feed" && ["history", "library", "subscriptions"].includes(seg[1] ?? "")) },
+  { domains: ["ycombinator.com"], rule: first(["login", "threads"]) }
 ];
-const PRIVATE_SEGMENTS = new Set([
-  "message", "messages", "messaging", "direct", "inbox", "settings", "preferences", "private",
-  "notifications", "chat", "dm", "dms", "account", "@me", "bookmarks", "saved"
-]);
 
 export function isPrivateAccountUrl(raw: string): boolean {
-  if (!hostMatches(raw, PLATFORM_DOMAINS)) return false;
+  let segments: string[];
   try {
-    const segments = new URL(raw).pathname.toLowerCase().split("/").filter(Boolean);
-    return segments.some((segment) => PRIVATE_SEGMENTS.has(segment));
+    segments = new URL(raw).pathname.toLowerCase().split("/").filter(Boolean);
   } catch {
     return true;
   }
+  return PLATFORM_PRIVATE_ROUTES.some(({ domains, rule }) => hostMatches(raw, domains) && rule(segments));
 }
