@@ -18,7 +18,6 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   [/\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\b/g, "[TOKEN_REDACTED]"],
   // JSON Web Tokens
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[TOKEN_REDACTED]"],
-  // Private key blocks
   // Private key blocks. The body may only be base64 lines, so a BEGIN in one
   // field can never consume unrelated text up to an END elsewhere; an
   // unterminated block still loses its key material.
@@ -42,8 +41,11 @@ export class PrivacyChecker {
     // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
     // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b([A-Za-z0-9_-]*?(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))\s*[:=]\s*[^\s&"]+/gi,
-      "$1=[REDACTED]"
+      /\b([A-Za-z0-9_-]*?(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
+      (_m, name: string, quote: string, value: string) => {
+        const q = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : "";
+        return `${name}${quote}${quote ? ": " : "="}${q}[REDACTED]${q}`;
+      }
     );
     // Bare "key": the "=" form (e.g. ?key=... in query strings) always; the
     // ":" form only with a token-shaped value, so prose like "The key: use
@@ -87,10 +89,12 @@ export class PrivacyChecker {
 const SECRET_KEY_NAME = /(password|passwd|secret|token|api[_-]?key|authorization|cookies?|session[_-]?id|credentials?|private[_-]?key)$/i;
 
 function redactValue(value: unknown, keyName: string | undefined): unknown {
+  // A secret-named key is blanked whatever its value's type: an array of
+  // cookies or a credentials object is as sensitive as a string.
+  if (keyName && SECRET_KEY_NAME.test(keyName) && value !== null && value !== undefined && value !== "") {
+    return "[REDACTED]";
+  }
   if (typeof value === "string") {
-    if (keyName && SECRET_KEY_NAME.test(keyName) && value.length > 0) {
-      return "[REDACTED]";
-    }
     return PrivacyChecker.filterSensitiveData(value);
   }
   if (Array.isArray(value)) {

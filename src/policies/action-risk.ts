@@ -64,6 +64,10 @@ const INTERACTION_VERBS = new Set([
   "modify", "rename", "move", "remove", "open", "login", "logout", "signin", "signup", "authorize"
 ]);
 
+const PRIVATE_OBJECTS = new Set([
+  "message", "messages", "inbox", "dm", "dms", "chat", "chats", "conversation", "conversations"
+]);
+
 const CONJUNCTIONS = new Set(["and", "then", "plus", "also", "or"]);
 
 // Verbs that may take a write noun as their object without performing it.
@@ -104,6 +108,12 @@ export function classifyAction(action: string): ActionClassification {
   }
 
   const hasDraft = has("draft");
+
+  // Reading private messages, inboxes or chats is private scraping (L5), not
+  // L0 public observation. Drafting text and send verbs are classified below.
+  if (hasAny(PRIVATE_OBJECTS) && !hasDraft && !hasAny(WRITE_VERBS)) {
+    return { level: "L5", recognized: true };
+  }
   const hasWriteVerb = hasAny(WRITE_VERBS);
   // A write noun is exempt only as the object of an EARLIER read/draft/
   // prepare verb with no conjunction in between: "draft_reply",
@@ -126,13 +136,15 @@ export function classifyAction(action: string): ActionClassification {
     return { level: "L4", recognized: true };
   }
 
+  // Input/execution verbs deny the action even when "fill"/"prepare" is also
+  // present ("fill_form_and_press_enter", "prepare_and_execute_command").
+  if (hasAny(INTERACTION_VERBS)) {
+    return { level: "L4", recognized: false };
+  }
+
   // L3: Prepared interaction
   if (has("fill") || has("prepare") || (hasDraft && has("review"))) {
     return { level: "L3", recognized: true };
-  }
-
-  if (hasAny(INTERACTION_VERBS)) {
-    return { level: "L4", recognized: false };
   }
 
   // L2: Private drafting

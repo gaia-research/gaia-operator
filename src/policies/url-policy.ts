@@ -111,6 +111,13 @@ function isNonPublicIPv6(h: number[]): boolean {
   if (firstFiveZero && h[5] === 0 && h[6] === 0 && h[7] === 1) return true;   // ::1
   if (firstFiveZero && h[5] === 0xffff) return isNonPublicIPv4(embeddedV4()); // ::ffff:a.b.c.d
   if (firstFiveZero && h[5] === 0) return true;                               // deprecated ::a.b.c.d
+  if (h.slice(0, 4).every((x) => x === 0) && h[4] === 0xffff && h[5] === 0) {
+    return isNonPublicIPv4(embeddedV4());                                     // ::ffff:0:a.b.c.d (IPv4-translated)
+  }
+  if (h[0] === 0x2002) {
+    return isNonPublicIPv4([h[1] >> 8, h[1] & 0xff, h[2] >> 8, h[2] & 0xff]); // 6to4 2002:V4ADDR::/48
+  }
+  if (h[0] === 0x2001 && h[1] === 0) return true;                             // Teredo 2001::/32 tunnel
   if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0)) {
     return isNonPublicIPv4(embeddedV4());                                     // NAT64 64:ff9b::/96
   }

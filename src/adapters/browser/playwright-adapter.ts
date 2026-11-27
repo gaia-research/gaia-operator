@@ -1,6 +1,19 @@
 import * as fs from "fs";
 import * as path from "path";
 import { checkNavigableUrl, isNonPublicHost } from "../../policies/url-policy.js";
+import { PrivacyChecker } from "../../policies/privacy.js";
+
+export function isBlockedRequestUrl(raw: string): boolean {
+  try {
+    const target = new URL(raw);
+    if (["http:", "https:", "ws:", "wss:"].includes(target.protocol)) {
+      return isNonPublicHost(target.hostname);
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 export class PlaywrightAdapter {
   private browser: any = null;
@@ -17,8 +30,23 @@ export class PlaywrightAdapter {
 
       const userAgent = process.env.GAIA_OPERATOR_BROWSER_USER_AGENT;
       this.context = await this.browser.newContext({
-        ...(userAgent ? { userAgent } : {})
+        ...(userAgent ? { userAgent } : {}),
+        // Service-worker fetches bypass request routing.
+        serviceWorkers: "block"
       });
+
+      // Requests from any page in this context (including popups opened by
+      // window.open) and WebSockets may not reach loopback, private,
+      // link-local or metadata hosts.
+      await this.context.route("**/*", (route: any) =>
+        isBlockedRequestUrl(route.request().url()) ? route.abort("blockedbyclient") : route.continue()
+      );
+      if (typeof this.context.routeWebSocket === "function") {
+        await this.context.routeWebSocket(
+          (url: URL) => isBlockedRequestUrl(url.toString()),
+          (ws: any) => ws.close({ code: 1008, reason: "Blocked by Gaia Operator capability boundary" })
+        );
+      }
 
       this.isMock = false;
       return true;
@@ -58,21 +86,6 @@ export class PlaywrightAdapter {
 
     const page = await this.context.newPage();
     try {
-      // Page-initiated requests (subresources, frames, fetch/XHR) may not reach
-      // loopback, private, link-local or metadata hosts.
-      await page.route("**/*", (route: any) => {
-        const reqUrl: string = route.request().url();
-        try {
-          const target = new URL(reqUrl);
-          if ((target.protocol === "http:" || target.protocol === "https:") && isNonPublicHost(target.hostname)) {
-            return route.abort("blockedbyclient");
-          }
-        } catch {
-          return route.abort("blockedbyclient");
-        }
-        return route.continue();
-      });
-
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
 
       // Playwright routes only the first URL of a redirect chain, so check
@@ -80,9 +93,13 @@ export class PlaywrightAdapter {
       // private host is refused: no content, title or screenshot is kept.
       // (The redirect hop itself has already been requested; see
       // docs/capability-boundary.md, Known limits.)
-      const landed = checkNavigableUrl(page.url());
+      const landedUrl = page.url();
+      const landed = checkNavigableUrl(landedUrl);
       if (!landed.ok) {
         throw new Error(`Navigation refused after redirect: ${landed.reason}`);
+      }
+      if (!PrivacyChecker.isPublicContentAllowed(landedUrl)) {
+        throw new Error("Navigation refused after redirect: landed on private/account content.");
       }
 
       const content = await page.content();

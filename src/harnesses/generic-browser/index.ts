@@ -4,6 +4,7 @@ import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockDetector } from "../../core/block-detector.js";
 import { checkNavigableUrl } from "../../policies/url-policy.js";
 import { PrivacyChecker } from "../../policies/privacy.js";
+import { inlineText } from "../../core/safe-text.js";
 
 /**
  * Visible text only: script/style bodies, tags and attributes (asset hashes,
@@ -156,16 +157,16 @@ export class GenericBrowserHarness {
 
     const notVisited = urls.filter((u) => !visited.includes(u) && !skipped.includes(u) && !failed.includes(u) && u !== stoppedAt);
     const section = (heading: string, list: string[]) =>
-      list.length > 0 ? `\n\n${heading}:\n` + list.map((u) => `- ${u}`).join("\n") : "";
+      list.length > 0 ? `\n\n${heading}:\n` + list.map((u) => `- ${inlineText(u)}`).join("\n") : "";
 
-    let reportContent = `# Generic Browser Report: ${task.title}`;
+    let reportContent = `# Generic Browser Report: ${inlineText(task.title)}`;
     reportContent += section("Observed URLs", visited);
     reportContent += section("Stopped at (challenge or rate limit, not observed)", stoppedAt ? [stoppedAt] : []);
     reportContent += section("Failed to load", failed);
     reportContent += section("Refused URLs (not opened)", skipped);
     reportContent += section("Not visited (run stopped)", notVisited);
     if (blockedState) {
-      reportContent += `\n\nRun stopped: ${blockedState.description}`;
+      reportContent += `\n\nRun stopped: ${inlineText(blockedState.description)}`;
     }
     return { findings, reportContent, blockedState };
   }
