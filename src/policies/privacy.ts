@@ -19,7 +19,10 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   // JSON Web Tokens
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[TOKEN_REDACTED]"],
   // Private key blocks
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[PRIVATE_KEY_REDACTED]"],
+  // Private key blocks. The body may only be base64 lines, so a BEGIN in one
+  // field can never consume unrelated text up to an END elsewhere; an
+  // unterminated block still loses its key material.
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----(?:\r?\n[A-Za-z0-9+\/=]+)*(?:\r?\n?-----END [A-Z ]*PRIVATE KEY-----)?/g, "[PRIVATE_KEY_REDACTED]"],
   // Cookie headers
   [/\b(Cookie|Set-Cookie)\s*:\s*[^\r\n]+/gi, "$1: [REDACTED]"]
 ];
@@ -36,15 +39,17 @@ export class PrivacyChecker {
     scrubbed = scrubbed.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[EMAIL_REDACTED]");
 
     // Scrub credential-named key/value pairs. The name must END in a
-    // credential word, so "max_tokens: 4096" and "secretary: x" survive while
-    // "client_secret: x", "api_key=x" and "auth_token: x" do not.
+    // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
+    // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b((?:[A-Za-z0-9]+[_-])*(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))\s*[:=]\s*[^\s&"]+/gi,
+      /\b([A-Za-z0-9_-]*?(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))\s*[:=]\s*[^\s&"]+/gi,
       "$1=[REDACTED]"
     );
-    // Bare "key=" (e.g. ?key=... API keys in query strings). Only the "="
-    // form, so prose such as "The key: ..." is untouched.
+    // Bare "key": the "=" form (e.g. ?key=... in query strings) always; the
+    // ":" form only with a token-shaped value, so prose like "The key: use
+    // structured state" is untouched.
     scrubbed = scrubbed.replace(/([?&\s]|^)key=[^\s&"]+/gim, "$1key=[REDACTED]");
+    scrubbed = scrubbed.replace(/\b(key)\s*:\s*(?=[^\s&"]*\d)[^\s&"]{12,}/gi, "$1=[REDACTED]");
 
     return scrubbed;
   }

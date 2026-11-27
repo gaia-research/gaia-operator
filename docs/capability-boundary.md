@@ -35,22 +35,24 @@ approval or selects a stronger credential.
 | L4/L5 always require approval, whatever the environment says. | `src/core/approval-gates.ts` |
 | Task ids are a single safe path segment; artifact, trace and sync paths are re-checked at the filesystem boundary. | `src/core/task-loader.ts`, `src/core/state-store.ts` (`resolveContained`) |
 | URLs are parsed, never substring-matched. Only http(s) to public literal hosts; platform targets must match the hostname exactly or as a dot-suffix. | `src/policies/url-policy.ts` |
-| Reddit permalinks must be `/r/<sub>/comments/...` paths (no `%`, no dot segments) whose joined URL keeps the same host and normalised path. | `src/adapters/reddit/reddit-api-adapter.ts` |
+| Reddit permalinks must be `/r/<sub>/comments/...` paths (no `%`, no dot segments) whose joined URL keeps the same host and normalised path. Browser-fallback thread URLs get the same check and must be https on reddit.com. | `src/adapters/reddit/reddit-api-adapter.ts`, `reddit-browser-adapter.ts` |
 | Mobile handoff re-validates the target URL immediately before opening it, not only at prepare time. | `src/harnesses/mobile-handoff/index.ts` |
-| CAPTCHA, rate-limit and account-warning pages stop a generic observation run. Detection reads visible text plus explicit challenge-widget markup, not raw HTML, so script URLs and asset hashes do not stop a run. | `src/harnesses/generic-browser/index.ts` |
+| A CAPTCHA/human-verification or 429 interstitial stops a generic observation run. Detection uses structural signals only (challenge-widget markup, interstitial phrases in the title or visible text), so articles that merely mention captchas, rate limits or bans do not stop it. Reddit runs keep the existing stop conditions. | `src/harnesses/generic-browser/index.ts` |
 | A blocked adapter never authorises trying a more powerful one (Hermes CUA remains gated). | `src/adapters/computer-use/hermes-cua-adapter.ts` |
 
 ## Credentials and artifacts
 
 - Credentials stay in the environment or the operator's own browser profile.
   Tasks and queue entries cannot name, select or reveal them.
-- Every artifact written by `ArtifactWriter` is redacted: bearer/basic
-  headers, GitHub/Slack/AWS/`sk-` keys, JWTs, private-key blocks, cookie
-  headers, `*token*=`/`*secret*=`/`*password*=` pairs and email addresses.
-  JSON keys that name a secret are blanked. Reddit excerpts are redacted before
-  truncation so a cut-off secret cannot slip past the patterns.
+- Every artifact written by `ArtifactWriter` is redacted: Authorization and
+  cookie headers, token-shaped Bearer/Basic values, GitHub/Slack/AWS/`sk-`
+  keys, JWTs, private-key blocks, credential-named pairs (`accessToken=`,
+  `client_secret:`, `?key=`) and email addresses. JSON keys that name a secret
+  are blanked. Untrusted fields are redacted one at a time before they are
+  formatted, so a pattern cannot consume neighbouring CSV cells or approval
+  lines. Reddit excerpts are redacted before truncation.
 - Untrusted single-line fields (titles, communities, URLs) are collapsed to
-  one line in approval and draft cards, draft text is fenced with a fence
+  one line in approval cards, draft cards and `report.md`; drafts are fenced, excerpts are blockquoted line by line with a fence
   longer than any backtick run inside it, and CSV cells are neutralised against
   spreadsheet formula injection. Content cannot forge a checked approval box.
 - Redaction is defence in depth, not permission to publish an artifact unread.
@@ -67,10 +69,9 @@ OS URL open, no out-of-tree write, no leaked secret, no forged approval.
 
 ## Known limits
 
-- Stop-condition detection is keyword based. For generic observation the
-  "login" keyword is not a stop (almost every public page links to sign-in);
-  the harness never submits credentials. Visible words such as "suspended" or
-  "banned" can still stop a run on an unrelated page; that errs toward stopping.
+- Reddit stop-condition detection is unchanged and keyword based. Generic
+  observation does not stop on login links or account-warning words: it never
+  signs in or submits anything, so those pages are observed, not acted on.
 - Host checks are literal: no DNS resolution, so a public name that resolves to
   a private address (DNS rebinding) is not caught here.
 - Persona/soul reference files are resolved relative to the task and

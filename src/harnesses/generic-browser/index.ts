@@ -19,8 +19,27 @@ export function visibleText(html: string): string {
     .replace(/\s+/g, " ");
 }
 
-// Challenge widgets are markup, not text; detect their containers explicitly.
+// Generic observation visits arbitrary public pages, where words such as
+// "captcha", "rate limit" or "banned" are ordinary article content. Stop only
+// on structural signals: a challenge widget in the markup, or a challenge /
+// 429 interstitial phrase in the title or visible text.
 const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)/i;
+const CHALLENGE_PHRASES = /\b(verify you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b/i;
+const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
+
+export function detectGenericBlock(
+  html: string,
+  title: string
+): { blockType: BlockedState["block_type"]; description: string } | null {
+  const text = `${title} ${visibleText(html)}`;
+  if (CHALLENGE_MARKUP.test(html) || CHALLENGE_PHRASES.test(text)) {
+    return { blockType: "captcha", description: "CAPTCHA or human-verification challenge detected." };
+  }
+  if (RATE_LIMIT_PHRASES.test(text)) {
+    return { blockType: "rate_limit", description: "Rate-limit (429) page detected." };
+  }
+  return null;
+}
 
 type NavigatingAdapter = Pick<PlaywrightAdapter, "navigate">;
 
@@ -41,6 +60,7 @@ export class GenericBrowserHarness {
     const skipped: string[] = [];
     const visited: string[] = [];
     const failed: string[] = [];
+    let stoppedAt: string | undefined;
     let blockedState: BlockedState | undefined;
     const platform = task.platforms[0] ?? "generic";
 
@@ -77,23 +97,18 @@ export class GenericBrowserHarness {
       try {
         const result = await this.browserAdapter.navigate(url, screenshotDir);
 
-        // Page content is data. If it shows a CAPTCHA, rate limit or account
-        // warning, stop the whole run rather than continue. The shared login
-        // heuristic matches any "sign in" link, which nearly every public page
-        // carries, so generic observation does not stop on it: this harness
-        // never submits credentials or interacts with the page.
-        visited.push(url);
-        const html = result.content ?? "";
-        const block =
-          BlockDetector.detectBlock(task.id, platform, visibleText(html), url, ["login"]) ??
-          (CHALLENGE_MARKUP.test(html)
-            ? BlockDetector.detectBlock(task.id, platform, "captcha", url, ["login"])
-            : null);
+        // Page content is data. A challenge or rate-limit interstitial stops
+        // the whole run rather than continuing to other URLs.
+        const detected = detectGenericBlock(result.content ?? "", result.title ?? "");
+        const block = detected
+          ? BlockDetector.forType(task.id, platform, detected.blockType, detected.description, url)
+          : null;
         if (block) {
           if (result.screenshotPath) {
             block.evidence_refs.push(result.screenshotPath);
           }
           blockedState = block;
+          stoppedAt = url;
           traceRecorder.recordStep(
             "generic_browser_blocked",
             "generic",
@@ -104,6 +119,7 @@ export class GenericBrowserHarness {
           break;
         }
 
+        visited.push(url);
         traceRecorder.recordStep(
           "generic_browser_navigate",
           "generic",
@@ -136,12 +152,13 @@ export class GenericBrowserHarness {
       }
     }
 
-    const notVisited = urls.filter((u) => !visited.includes(u) && !skipped.includes(u) && !failed.includes(u));
+    const notVisited = urls.filter((u) => !visited.includes(u) && !skipped.includes(u) && !failed.includes(u) && u !== stoppedAt);
     const section = (heading: string, list: string[]) =>
       list.length > 0 ? `\n\n${heading}:\n` + list.map((u) => `- ${u}`).join("\n") : "";
 
     let reportContent = `# Generic Browser Report: ${task.title}`;
-    reportContent += section("Observed URLs", visited.filter((u) => !failed.includes(u)));
+    reportContent += section("Observed URLs", visited);
+    reportContent += section("Stopped at (challenge or rate limit, not observed)", stoppedAt ? [stoppedAt] : []);
     reportContent += section("Failed to load", failed);
     reportContent += section("Refused URLs (not opened)", skipped);
     reportContent += section("Not visited (run stopped)", notVisited);

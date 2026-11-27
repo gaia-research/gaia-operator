@@ -4,36 +4,8 @@ import { StateStore, resolveContained } from "./state-store.js";
 import { Trace, Finding, InteractionOpportunity, BlockedState } from "./types.js";
 import { PrivacyChecker } from "../policies/privacy.js";
 
-/**
- * Artifacts mix operator-authored text with untrusted platform content (thread
- * titles, page titles, community names). These helpers keep that content from
- * forging structure in the review documents a human acts on.
- */
-
-// Collapse to one line so content cannot inject headings, checkboxes such as
-// "- [x] Approve as-is", or extra list items into approval/draft cards.
-export function inlineText(value: string | undefined): string {
-  return (value ?? "").replace(/[\r\n\u2028\u2029]+/g, " ").replace(/\s{2,}/g, " ").trim();
-}
-
-// Fence text with more backticks than any run it contains, so it cannot close
-// the fence early and continue as live markdown.
-export function fencedText(value: string | undefined, info = "text"): string {
-  const text = value ?? "";
-  const longestRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
-  const fence = "`".repeat(Math.max(3, longestRun + 1));
-  return `${fence}${info}\n${text}\n${fence}`;
-}
-
-// Neutralise spreadsheet formula injection (=, +, -, @, tab, CR) before CSV
-// quoting, per OWASP CSV-injection guidance.
-export function csvCell(value: string | undefined): string {
-  let text = value ?? "";
-  if (/^[=+\-@\t\r]/.test(text)) {
-    text = `'${text}`;
-  }
-  return `"${text.replace(/"/g, '""')}"`;
-}
+export { inlineText, fencedText, csvCell, quotedBlock } from "./safe-text.js";
+import { inlineText, fencedText, csvCell } from "./safe-text.js";
 
 function writeRedacted(filePath: string, content: string): void {
   fs.writeFileSync(filePath, PrivacyChecker.filterSensitiveData(content), "utf-8");
@@ -86,7 +58,7 @@ export class ArtifactWriter {
       ].join(",");
     }).join("\n");
 
-    writeRedacted(filePath, headers + rows);
+    fs.writeFileSync(filePath, headers + rows, "utf-8");
     return filePath;
   }
 
@@ -114,7 +86,7 @@ export class ArtifactWriter {
       }
     }
 
-    writeRedacted(filePath, markdown);
+    fs.writeFileSync(filePath, markdown, "utf-8");
     return filePath;
   }
 
@@ -129,9 +101,9 @@ export class ArtifactWriter {
     const taskDir = this.store.getArtifactsDir(taskId);
     const filePath = path.join(taskDir, "blocked-state.md");
 
-    const markdown = `# Blocked State Report\n\n- **Task ID:** ${blocked.task_id}\n- **Platform:** ${blocked.platform}\n- **Block Type:** ${blocked.block_type}\n- **URL:** ${inlineText(blocked.url) || "N/A"}\n- **Action Taken:** ${blocked.action_taken}\n- **Public Actions Taken:** ${blocked.public_actions_taken}\n\n## Description\n${blocked.description}\n\n## Recommended Human Action\n${blocked.recommended_human_action}\n\n## Evidence References\n${blocked.evidence_refs.length > 0 ? blocked.evidence_refs.map(ref => `- ${ref}`).join("\n") : "_No evidence references captured._"}\n`;
+    const markdown = `# Blocked State Report\n\n- **Task ID:** ${blocked.task_id}\n- **Platform:** ${blocked.platform}\n- **Block Type:** ${blocked.block_type}\n- **URL:** ${inlineText(blocked.url) || "N/A"}\n- **Action Taken:** ${blocked.action_taken}\n- **Public Actions Taken:** ${blocked.public_actions_taken}\n\n## Description\n${inlineText(blocked.description)}\n\n## Recommended Human Action\n${inlineText(blocked.recommended_human_action)}\n\n## Evidence References\n${blocked.evidence_refs.length > 0 ? blocked.evidence_refs.map(ref => `- ${inlineText(ref)}`).join("\n") : "_No evidence references captured._"}\n`;
 
-    writeRedacted(filePath, markdown);
+    fs.writeFileSync(filePath, markdown, "utf-8");
     return filePath;
   }
 
@@ -172,7 +144,7 @@ export class ArtifactWriter {
       markdown += `---\n\n`;
     }
 
-    writeRedacted(filePath, markdown);
+    fs.writeFileSync(filePath, markdown, "utf-8");
     return filePath;
   }
 }

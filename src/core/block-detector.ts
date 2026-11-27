@@ -6,10 +6,9 @@ export class BlockDetector {
     taskId: string,
     platform: PlatformName,
     content: string,
-    url?: string,
-    ignore: BlockedState["block_type"][] = []
+    url?: string
   ): BlockedState | null {
-    const result = StopConditionsChecker.checkContent(platform, content, url, ignore);
+    const result = StopConditionsChecker.checkContent(platform, content, url);
     if (result.shouldStop && result.blockType) {
       return {
         task_id: taskId,
@@ -24,6 +23,27 @@ export class BlockDetector {
       };
     }
     return null;
+  }
+
+  /** Build a stopped BlockedState for a block type detected by the caller. */
+  static forType(
+    taskId: string,
+    platform: PlatformName,
+    blockType: BlockedState["block_type"],
+    description: string,
+    url?: string
+  ): BlockedState {
+    return {
+      task_id: taskId,
+      platform,
+      url,
+      block_type: blockType,
+      description,
+      action_taken: "stopped",
+      public_actions_taken: 0,
+      recommended_human_action: this.getRecommendedAction(blockType),
+      evidence_refs: []
+    };
   }
 
   private static getRecommendedAction(blockType: string): string {

@@ -102,7 +102,7 @@ export function classifyAction(action: string): ActionClassification {
   );
 
   // L4: Public write / irreversible action
-  if (platformAction || hasWriteVerb || (hasWriteNoun && !hasDraft && !hasAny(READ_QUALIFIERS))) {
+  if (platformAction || hasWriteVerb || (hasWriteNoun && !hasDraft && !hasAny(READ_QUALIFIERS) && !hasAny(L0_OBSERVE_TOKENS))) {
     return { level: "L4", recognized: true };
   }
 
