@@ -1,10 +1,14 @@
 import { Trace, TraceStep, PlatformName, RiskLevel } from "./types.js";
+import { RISK_VALUES } from "../policies/action-risk.js";
+import { PolicyViolationError } from "./errors.js";
 
 export class TraceRecorder {
   private trace: Trace;
   private stepCounter = 1;
+  private riskCeiling: RiskLevel;
 
   constructor(taskId: string, riskCeiling: RiskLevel) {
+    this.riskCeiling = riskCeiling;
     this.trace = {
       task_id: taskId,
       status: "pending",
@@ -27,6 +31,20 @@ export class TraceRecorder {
     input: Record<string, any>,
     output: Record<string, any>
   ): void {
+    // Adapters and harnesses may narrow capability, never widen it. L0/L1 are
+    // read-only/local processing; any step at L2 or above must sit within the
+    // task's declared ceiling, and L5 is never recordable as performed.
+    if (
+      riskLevel === "L5" ||
+      (RISK_VALUES[riskLevel] >= RISK_VALUES.L2 && RISK_VALUES[riskLevel] > RISK_VALUES[this.riskCeiling])
+    ) {
+      throw new PolicyViolationError(
+        `Step '${action}' at ${riskLevel} exceeds the task risk ceiling ${this.riskCeiling}; adapters may not upgrade a task's declared risk level.`,
+        riskLevel,
+        action
+      );
+    }
+
     const step: TraceStep = {
       step_id: `step_${String(this.stepCounter++).padStart(3, "0")}`,
       action,
@@ -42,6 +60,21 @@ export class TraceRecorder {
     if (riskLevel === "L4") {
       this.trace.public_actions_taken++;
     }
+  }
+
+  /**
+   * Record that a capability above the ceiling was requested and refused.
+   * Stored at L0 with the requested level in the output, so it neither counts
+   * as a public action nor trips the ceiling guard.
+   */
+  recordRefusal(
+    action: string,
+    platform: PlatformName | undefined,
+    requestedLevel: RiskLevel,
+    input: Record<string, any>,
+    reason: string
+  ): void {
+    this.recordStep(action, platform, "L0", input, { refused: true, requested_risk_level: requestedLevel, reason });
   }
 
   setApprovalRequired(): void {

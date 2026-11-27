@@ -1,5 +1,19 @@
 import * as fs from "fs";
 import * as path from "path";
+import { checkNavigableUrl, isNonPublicHost, isPrivateAccountUrl } from "../../policies/url-policy.js";
+import { BlockedSessionError } from "../../core/errors.js";
+
+export function isBlockedRequestUrl(raw: string): boolean {
+  try {
+    const target = new URL(raw);
+    if (["http:", "https:", "ws:", "wss:"].includes(target.protocol)) {
+      return isNonPublicHost(target.hostname);
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
 
 export class PlaywrightAdapter {
   private browser: any = null;
@@ -16,8 +30,23 @@ export class PlaywrightAdapter {
 
       const userAgent = process.env.GAIA_OPERATOR_BROWSER_USER_AGENT;
       this.context = await this.browser.newContext({
-        ...(userAgent ? { userAgent } : {})
+        ...(userAgent ? { userAgent } : {}),
+        // Service-worker fetches bypass request routing.
+        serviceWorkers: "block"
       });
+
+      // Requests from any page in this context (including popups opened by
+      // window.open) and WebSockets may not reach loopback, private,
+      // link-local or metadata hosts.
+      await this.context.route("**/*", (route: any) =>
+        isBlockedRequestUrl(route.request().url()) ? route.abort("blockedbyclient") : route.continue()
+      );
+      if (typeof this.context.routeWebSocket === "function") {
+        await this.context.routeWebSocket(
+          (url: URL) => isBlockedRequestUrl(url.toString()),
+          (ws: any) => ws.close({ code: 1008, reason: "Blocked by Gaia Operator capability boundary" })
+        );
+      }
 
       this.isMock = false;
       return true;
@@ -42,6 +71,11 @@ export class PlaywrightAdapter {
     url: string,
     screenshotDir?: string
   ): Promise<{ content: string; title: string; screenshotPath?: string }> {
+    const requested = checkNavigableUrl(url);
+    if (!requested.ok) {
+      throw new Error(`Navigation refused: ${requested.reason}`);
+    }
+
     if (this.isMock) {
       return this.simulatedNavigate(url);
     }
@@ -53,6 +87,27 @@ export class PlaywrightAdapter {
     const page = await this.context.newPage();
     try {
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+
+      // Playwright routes only the first URL of a redirect chain, so check
+      // where the page actually landed. A public URL that redirects to a
+      // private host is refused: no content, title or screenshot is kept.
+      // (The redirect hop itself has already been requested; see
+      // docs/capability-boundary.md, Known limits.)
+      const assertLanded = (stage: string): string => {
+        const landedUrl = page.url();
+        const landed = checkNavigableUrl(landedUrl);
+        // Blocked states, not plain failures: harnesses turn these into a
+        // blocked-state report with human guidance (e.g. a login redirect).
+        if (!landed.ok) {
+          throw new BlockedSessionError(`Navigation refused after redirect (${stage}): ${landed.reason}`, "policy_unclear", url);
+        }
+        if (isPrivateAccountUrl(landedUrl)) {
+          throw new BlockedSessionError(`Navigation refused after redirect (${stage}): landed on login/private/account content.`, "login", url);
+        }
+        return landedUrl;
+      };
+
+      const landedBefore = assertLanded("before capture");
       const content = await page.content();
       const title = await page.title();
 
@@ -64,6 +119,21 @@ export class PlaywrightAdapter {
         const filename = `screenshot_${Date.now()}.png`;
         screenshotPath = path.join(screenshotDir, filename);
         await page.screenshot({ path: screenshotPath, fullPage: true });
+      }
+
+      // A meta-refresh or script navigation can land between the first check
+      // and the captures. Re-check, and discard everything if the page moved.
+      try {
+        const landedAfter = assertLanded("after capture");
+        // Same-origin URL rewrites (query/hash/history.replaceState) are
+        // normal; moving to another origin means the capture may not belong
+        // to the page that was checked.
+        if (new URL(landedAfter).origin !== new URL(landedBefore).origin) {
+          throw new BlockedSessionError("Navigation refused: page moved to another origin during capture.", "policy_unclear", url);
+        }
+      } catch (err) {
+        if (screenshotPath) fs.rmSync(screenshotPath, { force: true });
+        throw err;
       }
 
       return { content, title, screenshotPath };

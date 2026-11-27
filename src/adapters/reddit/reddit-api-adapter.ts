@@ -6,6 +6,22 @@ function getTransparentUserAgent(): string {
     "GaiaOperator/0.1.0 (+https://github.com/gaia-research/gaia-operator; public-community-research; contact=unset)";
 }
 
+// Only the /r/<sub>/comments/<id> prefix is trusted. Everything after it
+// (title slug, query, fragment, "%2e%2e" or other dot segments) is discarded
+// and the URL is rebuilt from the two validated parts, so threads with
+// non-ASCII slugs are kept and nothing can steer the path or host.
+const PERMALINK_PREFIX = /^\/r\/([A-Za-z0-9_]{1,64})\/comments\/([A-Za-z0-9]{1,16})(?:[/?#]|$)/;
+
+export function canonicalPermalink(permalink: unknown): string | null {
+  if (typeof permalink !== "string") return null;
+  const match = permalink.match(PERMALINK_PREFIX);
+  return match ? `/r/${match[1]}/comments/${match[2]}/` : null;
+}
+
+export function isSafePermalink(permalink: unknown): permalink is string {
+  return canonicalPermalink(permalink) !== null;
+}
+
 export class RedditApiAdapter {
   private userAgent: string;
 
@@ -52,7 +68,10 @@ export class RedditApiAdapter {
       }
 
       return json.data.children
-        .filter((child: any) => child?.kind === "t3" && child?.data?.permalink)
+        // The permalink is concatenated onto the reddit.com origin, so it must
+        // be a plain /r/<sub>/comments/... path. "@evil.example/x" would
+        // otherwise turn the target URL into a different host.
+        .filter((child: any) => child?.kind === "t3" && isSafePermalink(child?.data?.permalink))
         .map((child: any) => {
           const d = child.data;
           return {
@@ -61,7 +80,7 @@ export class RedditApiAdapter {
             subreddit: String(d.subreddit || "unknown"),
             selftext: String(d.selftext || ""),
             score: Number(d.score || 0),
-            url: `https://www.reddit.com${d.permalink}`,
+            url: `https://www.reddit.com${canonicalPermalink(d.permalink)}`,
             author: String(d.author || "unknown"),
             num_comments: Number(d.num_comments || 0),
             created_utc: Number(d.created_utc || 0)

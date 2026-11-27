@@ -12,6 +12,8 @@ import { RedditRecoveryHandler } from "./recover.js";
 import { RedditReportBuilder } from "./report.js";
 import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockedSessionError } from "../../core/errors.js";
+import { PrivacyChecker } from "../../policies/privacy.js";
+import { isConstraintRequested } from "../../policies/constraint-intent.js";
 
 export class RedditResearchHarness {
   private browserAdapter: PlaywrightAdapter;
@@ -115,7 +117,9 @@ export class RedditResearchHarness {
           const relevance = RedditScorer.scoreRelevance(thread, queries);
           const risk = RedditScorer.calculateRisk(thread);
           const recommendedAction = RedditScorer.determineAction(relevance, risk);
-          const summarySource = thread.selftext.trim() || thread.title;
+          // Redact before truncating: a secret cut mid-string would no longer
+          // match the redaction patterns at artifact-write time.
+          const summarySource = PrivacyChecker.filterSensitiveData(thread.selftext.trim() || thread.title);
 
           const finding: Finding = {
             id: `finding_${this.safeId(task.id)}_${this.safeId(query)}_${index++}`,
@@ -146,7 +150,7 @@ export class RedditResearchHarness {
               draft_reply: draftReply,
               nova_voice_status: voiceStatus,
               risk_level: recommendedAction === "approval_required" ? "L3" : "L2",
-              approval_required: recommendedAction === "approval_required" || task.constraints.require_approval === true
+              approval_required: recommendedAction === "approval_required" || isConstraintRequested(task.constraints.require_approval)
             });
           }
         }

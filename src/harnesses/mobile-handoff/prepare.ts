@@ -3,10 +3,12 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import { z } from "zod";
 import { MobileHandoffAdapter } from "../../adapters/mobile/mobile-handoff.js";
+import { taskIdSchema } from "../../core/task-loader.js";
+import { checkNavigableUrl, hostMatches, isPrivateAccountUrl } from "../../policies/url-policy.js";
 
 // Zod Schema matching the Input Contract in the PRD
 export const MobileHandoffTaskSchema = z.object({
-  id: z.string({ required_error: "task id is required" }).min(1),
+  id: taskIdSchema,
   type: z.literal("mobile_handoff"),
   platform: z.enum(["reddit", "github", "discord", "linkedin", "x", "generic"]),
   mode: z.string(),
@@ -48,6 +50,44 @@ export interface GuardrailCheckResult {
   violations: string[];
 }
 
+const PLATFORM_HOSTS: Record<string, string[]> = {
+  reddit: ["reddit.com"],
+  github: ["github.com"],
+  x: ["x.com", "twitter.com"],
+  linkedin: ["linkedin.com"],
+  discord: ["discord.com", "discordapp.com"]
+};
+
+/**
+ * The handoff opens `target.url` through the OS (`am start -d`), so it must be
+ * an http(s) URL whose parsed hostname belongs to the declared platform. A
+ * substring match would accept `https://attacker.example/?reddit.com`.
+ */
+export function checkTargetUrl(task: Pick<MobileHandoffTask, "platform" | "target">): string[] {
+  const violations: string[] = [];
+  const url = task.target?.url;
+  if (!url) {
+    return violations;
+  }
+
+  const navigable = checkNavigableUrl(url);
+  if (!navigable.ok) {
+    violations.push(`Target URL rejected: ${navigable.reason}`);
+    return violations;
+  }
+
+  const hosts = PLATFORM_HOSTS[task.platform];
+  if (hosts && !hostMatches(url, hosts)) {
+    violations.push(`Platform '${task.platform}' requires a target URL hosted on ${hosts.map(h => `'${h}'`).join(" or ")}.`);
+  }
+  // Public threads only: a handoff must never open a DM compose, inbox or
+  // settings page with the draft on the clipboard.
+  if (isPrivateAccountUrl(url)) {
+    violations.push("Target URL points at private/account content (messages, inbox, settings); handoff targets must be public threads.");
+  }
+  return violations;
+}
+
 /**
  * Checks guardrails for the handoff task.
  */
@@ -64,22 +104,7 @@ export function checkGuardrails(task: MobileHandoffTask, draftText: string): Gua
     violations.push(`Platform '${task.platform}' is not supported.`);
   }
 
-  // URL compatibility checks
-  if (task.platform === "reddit" && !task.target.url.includes("reddit.com")) {
-    violations.push("Platform 'reddit' requires a target URL containing 'reddit.com'.");
-  }
-  if (task.platform === "github" && !task.target.url.includes("github.com")) {
-    violations.push("Platform 'github' requires a target URL containing 'github.com'.");
-  }
-  if (task.platform === "x" && !task.target.url.includes("x.com") && !task.target.url.includes("twitter.com")) {
-    violations.push("Platform 'x' requires a target URL containing 'x.com' or 'twitter.com'.");
-  }
-  if (task.platform === "linkedin" && !task.target.url.includes("linkedin.com")) {
-    violations.push("Platform 'linkedin' requires a target URL containing 'linkedin.com'.");
-  }
-  if (task.platform === "discord" && !task.target.url.includes("discord.com") && !task.target.url.includes("discordapp.com")) {
-    violations.push("Platform 'discord' requires a target URL containing 'discord.com' or 'discordapp.com'.");
-  }
+  violations.push(...checkTargetUrl(task));
 
   // Explicitly manual constraints
   if (task.constraints.auto_post !== false) {

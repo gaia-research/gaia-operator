@@ -108,7 +108,7 @@ describe("Mobile Handoff Harness Unit Tests", () => {
     const task = MobileHandoffTaskSchema.parse(mismatchedReddit);
     const res = checkGuardrails(task, "Hello World");
     expect(res.passed).toBe(false);
-    expect(res.violations[0]).toContain("Platform 'reddit' requires a target URL containing 'reddit.com'");
+    expect(res.violations[0]).toContain("Platform 'reddit' requires a target URL hosted on 'reddit.com'");
   });
 
   it("should fail guardrails if draft has spammy word patterns", () => {

@@ -1,4 +1,5 @@
 import { OperatorTask, Finding, InteractionOpportunity } from "../../core/types.js";
+import { inlineText, fencedText, quotedBlock } from "../../core/safe-text.js";
 
 export class RedditReportBuilder {
   static build(
@@ -9,7 +10,7 @@ export class RedditReportBuilder {
   ): string {
     const timestamp = new Date().toISOString();
 
-    let md = `# Report: ${task.title}\n\n`;
+    let md = `# Report: ${inlineText(task.title)}\n\n`;
 
     md += `## Summary\n`;
     md += `- **Task ID:** ${task.id}\n`;
@@ -34,15 +35,15 @@ export class RedditReportBuilder {
       md += `_No findings collected. The runtime did not fabricate live-looking findings from mocks._\n\n`;
     } else {
       for (const f of findings) {
-        md += `### ${f.title || "Reddit Post"}\n`;
-        md += `- **URL:** ${f.url}\n`;
-        md += `- **Subreddit:** r/${f.community || "unknown"}\n`;
+        md += `### ${inlineText(f.title) || "Reddit Post"}\n`;
+        md += `- **URL:** ${inlineText(f.url)}\n`;
+        md += `- **Subreddit:** r/${inlineText(f.community) || "unknown"}\n`;
         md += `- **Relevance Score:** ${f.relevance_score}\n`;
         md += `- **Risk Level:** ${f.interaction_risk}\n`;
         md += `- **Recommended Action:** ${f.recommended_action}\n`;
-        md += `- **Summary:** ${f.summary}\n`;
+        md += `- **Summary:** ${inlineText(f.summary)}\n`;
         if (f.excerpt) {
-          md += `> ${f.excerpt}\n`;
+          md += `${quotedBlock(f.excerpt)}\n`;
         }
         md += `\n`;
       }
@@ -59,7 +60,7 @@ export class RedditReportBuilder {
       md += `_No public interaction opportunities identified._\n\n`;
     } else {
       for (const opt of opportunities) {
-        md += `- **${opt.id}:** r/${opt.community}, risk ${opt.risk_level}, approval required: ${opt.approval_required ? "yes" : "no"}.\n`;
+        md += `- **${inlineText(opt.id)}:** r/${inlineText(opt.community)}, risk ${opt.risk_level}, approval required: ${opt.approval_required ? "yes" : "no"}.\n`;
       }
       md += `\n`;
     }
@@ -69,10 +70,10 @@ export class RedditReportBuilder {
       md += `_No replies drafted._\n\n`;
     } else {
       for (const opt of opportunities) {
-        md += `### Draft for ${opt.id} (r/${opt.community})\n`;
-        md += `**Suggested Angle:** ${opt.suggested_angle}\n\n`;
+        md += `### Draft for ${inlineText(opt.id)} (r/${inlineText(opt.community)})\n`;
+        md += `**Suggested Angle:** ${inlineText(opt.suggested_angle)}\n\n`;
         md += `**Voice Status:** ${opt.nova_voice_status}\n\n`;
-        md += `\`\`\`text\n${opt.draft_reply}\n\`\`\`\n\n`;
+        md += `${fencedText(opt.draft_reply)}\n\n`;
       }
     }
 
@@ -100,9 +101,9 @@ export class RedditReportBuilder {
       md += `_No evidence references._\n`;
     } else {
       for (const f of findings) {
-        md += `- **${f.id}:** ${f.url}\n`;
+        md += `- **${inlineText(f.id)}:** ${inlineText(f.url)}\n`;
         for (const ref of f.evidence_refs) {
-          md += `  - ${ref}\n`;
+          md += `  - ${inlineText(ref)}\n`;
         }
       }
     }

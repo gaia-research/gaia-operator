@@ -6,8 +6,9 @@ import {
   MobileHandoffTask, 
   checkGuardrails, 
   generateDraft, 
-  loadRefFile 
+  loadRefFile
 } from "./prepare.js";
+import { resolveContained } from "../../core/state-store.js";
 
 export { 
   MobileHandoffTaskSchema, 
@@ -32,8 +33,8 @@ export class MobileHandoffHarness {
    */
   private static writeToArtifactDirs(taskId: string, fileName: string, content: string): void {
     const paths = [
-      path.resolve(process.cwd(), ".gaia-operator", "mobile", "handoffs", taskId, fileName),
-      path.resolve(process.cwd(), "artifacts", "mobile-handoff", taskId, fileName)
+      path.join(resolveContained(path.resolve(process.cwd(), ".gaia-operator", "mobile", "handoffs"), taskId), fileName),
+      path.join(resolveContained(path.resolve(process.cwd(), "artifacts", "mobile-handoff"), taskId), fileName)
     ];
 
     for (const p of paths) {
@@ -178,7 +179,7 @@ export class MobileHandoffHarness {
     const taskDir = path.dirname(path.resolve(process.cwd(), taskFilePath));
     
     // Check if task is already prepared, if not, prepare it.
-    const artifactsDir = path.resolve(process.cwd(), "artifacts", "mobile-handoff", task.id);
+    const artifactsDir = resolveContained(path.resolve(process.cwd(), "artifacts", "mobile-handoff"), task.id);
     const draftPath = path.join(artifactsDir, "draft.txt");
     const checkPath = path.join(artifactsDir, "guardrail-check.md");
 
@@ -202,6 +203,19 @@ export class MobileHandoffHarness {
 
     // Read draft
     const draftText = fs.readFileSync(draftPath, "utf-8");
+
+    // Re-run every guardrail on the current task file and draft immediately
+    // before the side effect: either may have changed since prepare() wrote
+    // its PASSED record.
+    const recheck = checkGuardrails(task, draftText);
+    if (!recheck.passed) {
+      return {
+        success: false,
+        message: "Cannot run handoff: guardrails failed on re-check.",
+        violations: recheck.violations,
+        taskId: task.id
+      };
+    }
 
     // Execute actual Termux / Intent flow
     const handoffResult = MobileHandoffAdapter.execute({

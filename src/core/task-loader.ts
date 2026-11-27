@@ -20,8 +20,21 @@ const outputTypeSchema = z.enum([
 
 const riskLevelSchema = z.enum(["L0", "L1", "L2", "L3", "L4", "L5"]);
 
+/**
+ * Task ids become directory and file names under the artifact store and the
+ * marketing-tasks sync directory, and may come from queue frontmatter. Restrict
+ * them to a single safe path segment so they can never traverse out.
+ */
+export const SAFE_TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export const taskIdSchema = z
+  .string({ required_error: "id is required" })
+  .min(1)
+  .regex(SAFE_TASK_ID_PATTERN, "id must be 1-128 characters of letters, digits, '.', '_' or '-', starting with a letter or digit")
+  .refine((value) => !value.includes(".."), "id must not contain '..'");
+
 export const TaskZodSchema = z.object({
-  id: z.string({ required_error: "id is required" }).min(1),
+  id: taskIdSchema,
   title: z.string({ required_error: "title is required" }).min(1),
   campaign: z.string().optional(),
   platforms: z.array(platformSchema).min(1, "At least one platform is required"),

@@ -2,6 +2,8 @@ import { PlaywrightAdapter } from "../browser/playwright-adapter.js";
 import { RedditThread, RedditComment } from "./reddit-types.js";
 import { BlockDetector } from "../../core/block-detector.js";
 import { BlockedSessionError } from "../../core/errors.js";
+import { checkNavigableUrl, hostMatches } from "../../policies/url-policy.js";
+import { canonicalPermalink } from "./reddit-api-adapter.js";
 
 export class RedditBrowserAdapter {
   private browserAdapter: PlaywrightAdapter;
@@ -52,7 +54,10 @@ export class RedditBrowserAdapter {
     let index = 1;
 
     while ((match = threadBlockRegex.exec(html)) !== null) {
-      const url = this.normalizeUrl(match[1]);
+      const url = this.normalizeUrl(this.decodeHtml(match[1]));
+      // Page-supplied URLs become finding/target URLs in approval cards; keep
+      // only reddit.com threads (drop other hosts, javascript:, etc.).
+      if (!url) continue;
       const title = this.decodeHtml(match[2].trim());
       const body = this.decodeHtml(match[3].trim());
       const subMatch = url.match(/\/r\/([^/]+)/);
@@ -78,10 +83,23 @@ export class RedditBrowserAdapter {
     return [];
   }
 
-  private normalizeUrl(url: string): string {
-    if (url.startsWith("https://")) return url;
-    if (url.startsWith("/")) return `https://www.reddit.com${url}`;
-    return url;
+  private normalizeUrl(url: string): string | null {
+    let pathname: string;
+    if (url.startsWith("/")) {
+      pathname = url;
+    } else if (checkNavigableUrl(url).ok && hostMatches(url, ["reddit.com"])) {
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== "https:") return null;
+        pathname = parsed.pathname;
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+    const canonical = canonicalPermalink(pathname);
+    return canonical ? `https://www.reddit.com${canonical}` : null;
   }
 
   private decodeHtml(value: string): string {

@@ -11,6 +11,7 @@ import { MarketingTasksAdapter } from "../adapters/filesystem/marketing-tasks-ad
 import { RedditResearchHarness } from "../harnesses/reddit-research/index.js";
 import { GenericBrowserHarness } from "../harnesses/generic-browser/index.js";
 import { ApprovalGates } from "./approval-gates.js";
+import { inlineText, fencedText } from "./safe-text.js";
 import { BlockedSessionError, PolicyViolationError } from "./errors.js";
 
 dotenv.config();
@@ -33,6 +34,9 @@ export class Orchestrator {
     const reqL3 = process.env.REQUIRE_APPROVAL_FOR_L3 !== "false";
     const reqL4 = process.env.REQUIRE_APPROVAL_FOR_L4 !== "false";
     this.approvalGates = new ApprovalGates(reqL3, reqL4);
+    if (this.approvalGates.l4OverrideIgnored) {
+      console.warn("[Orchestrator] REQUIRE_APPROVAL_FOR_L4=false is ignored: L4/L5 actions always require per-action human approval.");
+    }
   }
 
   async runTask(taskFile: string): Promise<ResultSummary> {
@@ -100,6 +104,7 @@ export class Orchestrator {
         const res = await genericHarness.execute(task, recorder, screenshotDir);
         findings = res.findings;
         reportContent = res.reportContent;
+        blockedState = res.blockedState;
       }
 
       if (blockedState) {
@@ -113,7 +118,7 @@ export class Orchestrator {
       status = "failed";
       recorder.fail(err.message);
       console.error(`[Orchestrator] Run error: ${err.message}`, err.stack);
-      reportContent = `# Task Failed: ${task.title}\n\nError details:\n\`\`\`\n${err.message}\n\`\`\``;
+      reportContent = `# Task Failed: ${inlineText(task.title)}\n\nError details:\n${fencedText(String(err?.message ?? err))}`;
     } finally {
       await browserAdapter.close();
     }

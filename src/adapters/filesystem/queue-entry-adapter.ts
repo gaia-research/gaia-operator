@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
+import { createHash } from "crypto";
 import { OperatorTask } from "../../core/types.js";
 import { TaskValidationError } from "../../core/errors.js";
 
@@ -164,7 +165,22 @@ export class QueueEntryAdapter {
       (typeof metadata.title === "string" && metadata.title.trim()) ||
       (typeof metadata.id === "string" && metadata.id.trim()) ||
       path.basename(entry.filePath, path.extname(entry.filePath));
-    const id = typeof metadata.id === "string" ? metadata.id.trim() : `queue-${path.basename(entry.filePath, path.extname(entry.filePath))}`;
+    // An explicit frontmatter id is validated as-is (and rejected if unsafe);
+    // the filename fallback is sanitised so ordinary filenames still load.
+    const rawFallback = `queue-${path.basename(entry.filePath, path.extname(entry.filePath))}`;
+    let fallbackId = rawFallback
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/\.{2,}/g, ".")
+      .replace(/-{2,}/g, "-")
+      .replace(/[-.]+$/, "");
+    if (fallbackId !== rawFallback || fallbackId.length > 128) {
+      // Distinct filenames must not collapse onto one id (and one artifact
+      // dir), whether through sanitising or through truncation.
+      const digest = createHash("sha256").update(rawFallback).digest("hex").slice(0, 8);
+      fallbackId = `${fallbackId.slice(0, 119)}-${digest}`;
+    }
+    fallbackId = fallbackId.slice(0, 128);
+    const id = typeof metadata.id === "string" ? metadata.id.trim() : fallbackId;
     const channel = normalizeChannel(metadata.channel);
     const platformRaw = typeof metadata.platform === "string" ? metadata.platform.trim().toLowerCase() : "";
     const platform = platformRaw || DEFAULT_PLATFORMS_BY_CHANNEL[channel] || "generic";
@@ -184,7 +200,7 @@ export class QueueEntryAdapter {
         : undefined;
 
     const task: OperatorTask = {
-      id: typeof id === "string" ? id : `queue-${path.basename(entry.filePath, path.extname(entry.filePath))}`,
+      id,
       title: typeof title === "string" ? title : path.basename(entry.filePath, path.extname(entry.filePath)),
       campaign: typeof metadata.campaign === "string" && metadata.campaign.trim() ? metadata.campaign.trim() : undefined,
       platforms: [platform as OperatorTask["platforms"][number]],
