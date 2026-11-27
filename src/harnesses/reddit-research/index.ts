@@ -12,6 +12,7 @@ import { RedditRecoveryHandler } from "./recover.js";
 import { RedditReportBuilder } from "./report.js";
 import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockedSessionError } from "../../core/errors.js";
+import { PrivacyChecker } from "../../policies/privacy.js";
 
 export class RedditResearchHarness {
   private browserAdapter: PlaywrightAdapter;
@@ -115,7 +116,9 @@ export class RedditResearchHarness {
           const relevance = RedditScorer.scoreRelevance(thread, queries);
           const risk = RedditScorer.calculateRisk(thread);
           const recommendedAction = RedditScorer.determineAction(relevance, risk);
-          const summarySource = thread.selftext.trim() || thread.title;
+          // Redact before truncating: a secret cut mid-string would no longer
+          // match the redaction patterns at artifact-write time.
+          const summarySource = PrivacyChecker.filterSensitiveData(thread.selftext.trim() || thread.title);
 
           const finding: Finding = {
             id: `finding_${this.safeId(task.id)}_${this.safeId(query)}_${index++}`,
