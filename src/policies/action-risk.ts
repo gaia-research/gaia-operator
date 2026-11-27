@@ -42,7 +42,7 @@ const WRITE_NOUNS = new Set([
 // (either order) is a platform-side action, not report generation.
 const PLATFORM_ACTION_VERBS = new Set(["report", "save", "flag", "hide", "block", "mute"]);
 const PLATFORM_OBJECTS = new Set([
-  "user", "users", "post", "posts", "comment", "comments", "thread", "threads",
+  "user", "users", "post", "posts", "comment", "comments", "reply", "replies", "thread", "threads",
   "account", "accounts", "content", "community", "communities", "subreddit", "subreddits", "repo", "repos"
 ]);
 

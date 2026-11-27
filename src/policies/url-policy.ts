@@ -133,6 +133,8 @@ function isNonPublicIPv6(h: number[]): boolean {
   if ((h[0] & 0xffc0) === 0xfec0) return true;  // fec0::/10 site-local (deprecated)
   if ((h[0] & 0xff00) === 0xff00) return true;  // ff00::/8 multicast
   if (h[0] === 0x2001 && h[1] === 0x0db8) return true; // documentation
+  if (h[0] === 0x2001 && h[1] === 0x0002 && h[2] === 0) return true; // benchmarking 2001:2::/48
+  if (h[0] === 0x2001 && (h[1] & 0xfff0) === 0x0020) return true;    // ORCHIDv2 2001:20::/28
   return false;
 }
 

@@ -361,6 +361,9 @@ describe("generic browser observation of hostile pages", () => {
     // its exact title still stops the run. An article title does not.
     expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Attention Required! | Cloudflare")?.blockType).toBe("captcha");
     expect(detectGenericBlock(`<html><body>${body}</body></html>`, "429 Too Many Requests")?.blockType).toBe("rate_limit");
+    // Review round 10: generic words/ids on long pages are content.
+    expect(detectGenericBlock(`<html><body>${body}</body></html>`, "Access Denied")).toBeNull();
+    expect(detectGenericBlock(`<html><body><form id="challenge-form"></form>${body}</body></html>`, "Daily coding challenge")).toBeNull();
     // Review round 8: Cloudflare's bot-detection script on an ordinary short page is not a challenge.
     expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script></head><body><div id=\"root\">App</div></body></html>", "App")).toBeNull();
     // Review round 5: current Cloudflare managed-challenge interstitial.
@@ -460,6 +463,8 @@ describe("generic browser observation of hostile pages", () => {
       "http://kubernetes.default.svc/",
       "http://[100::1]/",
       "http://[64:ff9b:1::a00:1]/",
+      "http://[2001:2::1]/",
+      "http://[2001:20::1]/",
       "javascript:alert(document.cookie)",
       "file:///etc/passwd",
       "data:text/html,<script>1</script>",
@@ -762,6 +767,9 @@ describe("artifact hygiene helpers", () => {
     expect(indentedOut).not.toContain("MIIEowIBAAKCAQEA");
     expect(indentedOut).not.toContain("QWERTYfixture");
     expect(indentedOut).toContain("after");
+    // Review round 10: keep text after the END marker; a stray BEGIN does not eat short prose.
+    expect(PrivacyChecker.filterSensitiveData("-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY----- keep this")).toBe("[PRIVATE_KEY_REDACTED] keep this");
+    expect(PrivacyChecker.filterSensitiveData("-----BEGIN PRIVATE KEY-----\nMIIEowIBAAKCAQEAfixture\nStatus: approved\nThanks")).toBe("[PRIVATE_KEY_REDACTED]\nStatus: approved\nThanks");
     // Review round 7: a field ending in a credential word must not swallow
     // the next line (closing fence, URL line).
     const tail = PrivacyChecker.filterSensitiveData("```text\nPaste your API token:\n```\n- **URL:** https://www.reddit.com/r/x\nSetting the Authorization:\n- **Risk:** L3");
@@ -792,6 +800,9 @@ describe("artifact hygiene helpers", () => {
     // Review round 4: quoted and JSON-shaped secrets in free text.
     const quoted = PrivacyChecker.filterSensitiveData(`{"password": "hunter 2", "access_token": "fixture-abc"} client_secret="abc def" note: ok`);
     for (const secret of ["hunter 2", "fixture-abc", "abc def"]) expect(quoted).not.toContain(secret);
+    // Review round 10: escaped quotes and multi-word unquoted values.
+    expect(PrivacyChecker.filterSensitiveData('{"password":"ab\\"cdef"}')).not.toContain("cdef");
+    expect(PrivacyChecker.filterSensitiveData("passphrase: correct horse battery staple\nnext line")).toBe("passphrase=[REDACTED]\nnext line");
     expect(quoted).toContain(`"password": "[REDACTED]"`);
     expect(quoted).toContain("note: ok");
     expect(PrivacyChecker.redactDeep({ accessKey: "q", secretKey: "sk", passphrase: "p" }))
@@ -828,6 +839,8 @@ describe("artifact hygiene helpers", () => {
     expect(quotedBlock("ok\r## Approved\r- [x] Approve as-is")).toBe("> ok\n> \\## Approved\n> \\- \\[x\\] Approve as-is");
     // Review round 9: escape the ordered-list delimiter, not the digit.
     expect(quotedBlock("1) install it")).toBe("> 1\\) install it");
+    // Review round 10: thematic breaks and empty list markers.
+    expect(quotedBlock("***\n*\n+\n1.\n___")).toBe("> \\***\n> \\*\n> \\+\n> 1\\.\n> \\___");
   });
 
   it("keeps untrusted text from forging markdown or spreadsheet structure", () => {
@@ -898,6 +911,10 @@ describe("artifact hygiene helpers", () => {
     expect(classifyAction("read_thread_comments").level).toBe("L0");
     expect(classifyAction("extract_thread_comments").level).toBe("L1");
     expect(classifyAction("extract_post_comments").level).toBe("L4");
+    // Review round 10: reporting/saving a reply is a platform action.
+    for (const action of ["report_reply", "save_reply", "report_replies"]) {
+      expect(classifyAction(action).level, action).toBe("L4");
+    }
     for (const action of ["search_post_reply", "read_to_reply", "navigate_to_post_comment", "list_posts_comment_on_each", "navigate_to_post"]) {
       expect(classifyAction(action).level, action).toBe("L4");
       expect(isActionAllowed(action, "L3", false).allowed, action).toBe(false);

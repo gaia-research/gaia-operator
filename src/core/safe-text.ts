@@ -43,8 +43,10 @@ export function quotedBlock(value: string | undefined): string {
     // Escape block markers, and setext underlines (=== / ---) that would turn
     // the previous line into a heading.
     .map((line) => `> ${line
-      .replace(/^(\s*)([#>]|[-*+]\s|=+\s*$|-+\s*$)/, "$1\\$2")
-      .replace(/^(\s*\d+)([.)])(\s)/, "$1\\$2$3")}`)
+      // Any leading block-marker character is escaped: headings, quotes,
+      // bullets (incl. empty ones), thematic breaks and setext underlines.
+      .replace(/^(\s*)([#>*_+=-])/, "$1\\$2")
+      .replace(/^(\s*\d+)([.)])(\s|$)/, "$1\\$2$3")}`)
     .join("\n");
 }
 

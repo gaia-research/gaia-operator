@@ -55,13 +55,13 @@ export function visibleText(html: string): string {
 // Strong signals hold on a page of any length: Cloudflare's challenge
 // orchestrator / challenge form, or a title that IS an interstitial title
 // (exact match, so an article titled "Handling HTTP 429" is not one).
-const STRONG_CHALLENGE_MARKUP = /\/cdn-cgi\/challenge-platform\/h\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
-const INTERSTITIAL_TITLE = /^\s*(attention required!? \| cloudflare|just a moment\.\.\.|verifying you are human\.?|access denied|are you a robot\??)\s*$/i;
+const STRONG_CHALLENGE_MARKUP = /\/cdn-cgi\/challenge-platform\/h\/|\/cdn-cgi\/[^"'\s]*["'][\s\S]{0,2000}?id\s*=\s*["']challenge-(stage|form|running)["']|id\s*=\s*["']challenge-(stage|form|running)["'][\s\S]{0,2000}?\/cdn-cgi\//i;
+const INTERSTITIAL_TITLE = /^\s*(attention required!? \| cloudflare|just a moment\.\.\.|verifying you are human\.?)\s*$/i;
 const RATE_LIMIT_TITLE = /^\s*(429 too many requests|too many requests|error 429[^a-z]*)\s*$/i;
 // Weak signals count only on a near-empty page: widgets also sit on ordinary
 // contact/comment forms, and phrases also appear in articles.
 const WEAK_CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)/i;
-const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b|^\s*just a moment\.\.\./i;
+const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare|access denied)\b|^\s*just a moment\.\.\./i;
 const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
 
 const INTERSTITIAL_MAX_TEXT = 600;

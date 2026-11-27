@@ -27,16 +27,19 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 const PEM_BEGIN = /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----/g;
-const PEM_END = /^[ \t]*-----END [A-Z ]{0,40}PRIVATE KEY-----/;
-const PEM_BODY_LINE = /^[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]{1,40}:[^\r\n]*)?[ \t]*$/;
+const PEM_END = /-----END [A-Z ]{0,40}PRIVATE KEY-----/;
+const PEM_BASE64_LINE = /^[ \t]*[A-Za-z0-9+\/=]+[ \t]*$/;
+const PEM_HEADER_LINE = /^[ \t]*(Proc-Type|DEK-Info):[^\r\n]*$/;
+const PEM_BLANK_LINE = /^[ \t]*$/;
 
 /**
- * Linear line scanner for private-key blocks. The body may only be base64
- * lines (indentation, trailing spaces, blank lines and PEM "Name: value"
- * headers allowed), so a BEGIN in one field can never consume unrelated prose
- * up to an END elsewhere, and an unterminated block still loses its key
- * material. A regex with optional whitespace on both sides of each body line
- * backtracks exponentially on blank lines; this does not.
+ * Linear line scanner for private-key blocks (a regex with optional
+ * whitespace around each body line backtracks exponentially on blank lines).
+ * With an END marker, everything from BEGIN through the marker is redacted and
+ * the rest of the END line is kept. Without one (truncated excerpt), only the
+ * BEGIN line and the key-like lines after it are redacted: base64 lines of
+ * key length (>= 16 chars or "=" padded) and the real PEM headers, so short
+ * prose words after a stray BEGIN survive.
  */
 function redactPrivateKeys(text: string): string {
   if (!text.includes("PRIVATE KEY-----")) return text;
@@ -45,24 +48,36 @@ function redactPrivateKeys(text: string): string {
   PEM_BEGIN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PEM_BEGIN.exec(text)) !== null) {
+    if (match.index < cursor) continue;
     out += text.slice(cursor, match.index);
-    let end = match.index + match[0].length;
-    // Consume the rest of the BEGIN line.
-    const beginLineEnd = text.indexOf("\n", end);
-    end = beginLineEnd === -1 ? text.length : beginLineEnd;
-    while (end < text.length) {
-      const next = text.indexOf("\n", end + 1);
-      const line = text.slice(end + 1, next === -1 ? text.length : next).replace(/\r$/, "");
-      if (PEM_END.test(line)) {
-        end = next === -1 ? text.length : next;
+    const lineEnd = (from: number) => {
+      const n = text.indexOf("\n", from);
+      return n === -1 ? text.length : n;
+    };
+    let pos = lineEnd(match.index + match[0].length); // end of BEGIN line
+    let lastStrongEnd = pos;
+    let end = -1;
+    while (pos < text.length) {
+      const next = lineEnd(pos + 1);
+      const line = text.slice(pos + 1, next).replace(/\r$/, "");
+      const endMatch = PEM_END.exec(line);
+      if (endMatch && PEM_BLANK_LINE.test(line.slice(0, endMatch.index))) {
+        end = pos + 1 + endMatch.index + endMatch[0].length;
         break;
       }
-      if (!PEM_BODY_LINE.test(line)) break;
-      end = next === -1 ? text.length : next;
+      if (PEM_HEADER_LINE.test(line) || PEM_BLANK_LINE.test(line)) {
+        if (!PEM_BLANK_LINE.test(line)) lastStrongEnd = next;
+      } else if (PEM_BASE64_LINE.test(line)) {
+        const body = line.trim();
+        if (body.length >= 16 || body.endsWith("=")) lastStrongEnd = next;
+      } else {
+        break;
+      }
+      pos = next;
     }
     out += "[PRIVATE_KEY_REDACTED]";
-    cursor = end;
-    PEM_BEGIN.lastIndex = Math.max(end, match.index + 1);
+    cursor = end === -1 ? lastStrongEnd : end;
+    PEM_BEGIN.lastIndex = Math.max(cursor, match.index + 1);
   }
   return out + text.slice(cursor);
 }
@@ -78,11 +93,13 @@ export class PrivacyChecker {
     // Scrub emails
     scrubbed = scrubbed.replace(/[a-zA-Z0-9._%+-]{1,64}@[a-zA-Z0-9.-]{1,253}\.[a-zA-Z]{2,24}/g, "[EMAIL_REDACTED]");
 
-    // Scrub credential-named key/value pairs. The name must END in a
+    // Scrub credential-named key/value pairs (quoted values honour backslash
+    // escapes; unquoted values run to the end of the line or field, so a
+    // multi-word passphrase is not cut after its first word). The name must END in a
     // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
     // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b([A-Za-z0-9_-]{0,64}?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)[ \t]*[:=][ \t]*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
+      /\b([A-Za-z0-9_-]{0,64}?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)[ \t]*[:=][ \t]*("(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|[^\s&"',}][^\r\n&"',}]*)/gi,
       (_m, name: string, quote: string, value: string) => {
         const q = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : "";
         return `${name}${quote}${quote ? ": " : "="}${q}[REDACTED]${q}`;
