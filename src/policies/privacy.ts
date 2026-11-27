@@ -18,10 +18,14 @@ const TOKEN_PATTERNS: Array<[RegExp, string]> = [
   [/\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\b/g, "[TOKEN_REDACTED]"],
   // JSON Web Tokens
   [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[TOKEN_REDACTED]"],
-  // Private key blocks. The body may only be base64 lines, so a BEGIN in one
-  // field can never consume unrelated text up to an END elsewhere; an
-  // unterminated block still loses its key material.
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----(?:\r?\n[A-Za-z0-9+\/=]+)*(?:\r?\n?-----END [A-Z ]*PRIVATE KEY-----)?/g, "[PRIVATE_KEY_REDACTED]"],
+  // Private key blocks. The body may only be base64 lines (indentation,
+  // trailing spaces, blank lines and PEM "Name: value" headers allowed), so a
+  // BEGIN in one field can never consume unrelated prose up to an END
+  // elsewhere; an unterminated block still loses its key material.
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[ \t]*(?:\r?\n[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]+:[^\r\n]*)?[ \t]*)*?(?:\r?\n[ \t]*-----END [A-Z ]*PRIVATE KEY-----)/g, "[PRIVATE_KEY_REDACTED]"],
+  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[ \t]*(?:\r?\n[ \t]*(?:[A-Za-z0-9+\/=]+|[A-Za-z-]+:[^\r\n]*)[ \t]*)*/g, "[PRIVATE_KEY_REDACTED]"],
+  // Credentials embedded in URLs (scheme://user:pass@host)
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s\/?#@]+@/gi, "$1[REDACTED]@"],
   // Cookie headers
   [/\b(Cookie|Set-Cookie)\s*:\s*[^\r\n]+/gi, "$1: [REDACTED]"]
 ];
@@ -41,7 +45,7 @@ export class PrivacyChecker {
     // credential word (any prefix, incl. camelCase: accessToken, clientSecret),
     // so "max_tokens: 4096" and "secretary: x" survive.
     scrubbed = scrubbed.replace(
-      /\b([A-Za-z0-9_-]*?(?:password|passwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
+      /\b([A-Za-z0-9_-]*?(?:password|passwd|passphrase|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|token|session[_-]?id))(["']?)\s*[:=]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s&"',}]+)/gi,
       (_m, name: string, quote: string, value: string) => {
         const q = value.startsWith('"') ? '"' : value.startsWith("'") ? "'" : "";
         return `${name}${quote}${quote ? ": " : "="}${q}[REDACTED]${q}`;
@@ -86,7 +90,7 @@ export class PrivacyChecker {
 // The key name must END in a credential word (snake, kebab or camelCase):
 // "accessToken", "client_secret", "set-cookie" are blanked; "session_mode",
 // "cookie_banner", "max_tokens" are evidence and kept.
-const SECRET_KEY_NAME = /(password|passwd|secret|token|api[_-]?key|authorization|cookies?|session[_-]?id|credentials?|private[_-]?key)$/i;
+const SECRET_KEY_NAME = /(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|secret[_-]?key|private[_-]?key|authorization|cookies?|session[_-]?id|credentials?)$/i;
 
 function redactValue(value: unknown, keyName: string | undefined): unknown {
   // A secret-named key is blanked whatever its value's type: an array of

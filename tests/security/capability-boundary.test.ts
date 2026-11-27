@@ -15,7 +15,7 @@ import * as path from "path";
 
 import { classifyAction, isActionAllowed } from "../../src/policies/action-risk.js";
 import { isConstraintRequested } from "../../src/policies/constraint-intent.js";
-import { checkNavigableUrl, hostMatches } from "../../src/policies/url-policy.js";
+import { checkNavigableUrl, hostMatches, isPrivateAccountUrl } from "../../src/policies/url-policy.js";
 import { PrivacyChecker } from "../../src/policies/privacy.js";
 import { PolicyEngine } from "../../src/core/policy-engine.js";
 import { TraceRecorder } from "../../src/core/trace-recorder.js";
@@ -312,6 +312,28 @@ describe("generic browser observation of hostile pages", () => {
     const longArticle = `<html><body><p>${"Background paragraph about API design. ".repeat(20)}</p><p>The API returned HTTP 429 when we hammered it; verify you are a human prompts followed.</p></body></html>`;
     expect(detectGenericBlock(longArticle, "Blog")).toBeNull();
     expect(detectGenericBlock("<html><body>x</body></html>", "429 Too Many Requests")?.blockType).toBe("rate_limit");
+    // Review round 5: current Cloudflare managed-challenge interstitial.
+    expect(detectGenericBlock("<html><body><p>Verifying you are human. This may take a few seconds.</p></body></html>", "Just a moment...")?.blockType).toBe("captcha");
+    expect(detectGenericBlock("<html><head><script src=\"/cdn-cgi/challenge-platform/h/b/orchestrate/jsch/v1\"></script></head><body></body></html>", "x")?.blockType).toBe("captcha");
+  });
+
+  it("never records the password of a refused credential-bearing URL", async () => {
+    // Review round 5: refused URLs were written verbatim to report.md/trace.
+    const task = baseTask({ id: "hostile-userinfo", platforms: ["generic"], mode: "research", risk_ceiling: "L1", queries: ["https://admin:hunter2fixture@192.168.1.1/", "https://deploy:pwfixture@localhost:8080/"] });
+    const recorder = new TraceRecorder(task.id, task.risk_ceiling);
+    const res = await new GenericBrowserHarness({ navigate: vi.fn() }).execute(task, recorder);
+    const written = PrivacyChecker.filterSensitiveData(res.reportContent) + JSON.stringify(PrivacyChecker.redactDeep(recorder.getTrace()));
+    expect(written).not.toContain("hunter2fixture");
+    expect(written).not.toContain("pwfixture");
+  });
+
+  it("treats account paths as private only on known platforms, by whole segment", () => {
+    // Review round 5: substring checks refused public docs pages.
+    expect(isPrivateAccountUrl("https://docs.djangoproject.com/en/5.0/topics/settings/")).toBe(false);
+    expect(isPrivateAccountUrl("https://hostile-fixture.example/preferences")).toBe(false);
+    expect(isPrivateAccountUrl("https://www.reddit.com/r/settingsfans/comments/1/")).toBe(false);
+    expect(isPrivateAccountUrl("https://www.reddit.com/message/inbox/")).toBe(true);
+    expect(isPrivateAccountUrl("https://x.com/settings/account")).toBe(true);
   });
 
   it("does not let a queried URL or task title forge report.md structure", async () => {
@@ -352,13 +374,15 @@ describe("generic browser observation of hostile pages", () => {
       "http://[::ffff:0:127.0.0.1]/",
       "http://[2002:7f00:1::]/",
       "http://[2001:0:4136:e378::1]/",
+      "http://kubernetes.default.svc/",
+      "http://[100::1]/",
       "javascript:alert(document.cookie)",
       "file:///etc/passwd",
       "data:text/html,<script>1</script>",
       "intent://scan/#Intent;scheme=zxing;end",
       "https://user:pass@hostile-fixture.example/",
-      "https://hostile-fixture.example/messages/inbox",
-      "https://hostile-fixture.example/settings/account"
+      "https://www.reddit.com/message/inbox/",
+      "https://www.linkedin.com/messaging/../settings/"
     ];
     const task = baseTask({ id: "hostile-urls", platforms: ["generic"], mode: "research", risk_ceiling: "L1", queries: hostileUrls });
     const adapter = fakeAdapter();
@@ -566,6 +590,11 @@ describe("mobile handoff never opens a hostile target", () => {
 
       expect(res.success).toBe(false);
       expect(execSpy).not.toHaveBeenCalled();
+
+      // Review round 5: any guardrail change after prepare is re-checked, not just the URL.
+      fs.writeFileSync(taskFile, JSON.stringify({ ...baseMobile, id, platform: "github", target: { url: "https://www.reddit.com/r/example/comments/1" } }));
+      expect(MobileHandoffHarness.handoff(taskFile).success).toBe(false);
+      expect(execSpy).not.toHaveBeenCalled();
     } finally {
       for (const dir of artifactRoots) fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -606,6 +635,12 @@ describe("artifact hygiene helpers", () => {
     const out = PrivacyChecker.filterSensitiveData(text + "- **Approval Required:** YES\n-----END RSA PRIVATE KEY-----");
     expect(out).toContain("- **Approval Required:** YES");
     expect(out).not.toContain("MIIBOgIBAAJBAKj34");
+    // Review round 5: indented / trailing-space key bodies (markdown code blocks).
+    const indented = "    -----BEGIN RSA PRIVATE KEY-----  \n    MIIEowIBAAKCAQEAfixturefixture  \n    QWERTYfixture==\n    -----END RSA PRIVATE KEY-----\nafter";
+    const indentedOut = PrivacyChecker.filterSensitiveData(indented);
+    expect(indentedOut).not.toContain("MIIEowIBAAKCAQEA");
+    expect(indentedOut).not.toContain("QWERTYfixture");
+    expect(indentedOut).toContain("after");
   });
 
   it("redacts credential shapes", () => {
@@ -634,6 +669,8 @@ describe("artifact hygiene helpers", () => {
     for (const secret of ["hunter 2", "fixture-abc", "abc def"]) expect(quoted).not.toContain(secret);
     expect(quoted).toContain(`"password": "[REDACTED]"`);
     expect(quoted).toContain("note: ok");
+    expect(PrivacyChecker.redactDeep({ accessKey: "q", secretKey: "sk", passphrase: "p" }))
+      .toEqual({ accessKey: "[REDACTED]", secretKey: "[REDACTED]", passphrase: "[REDACTED]" });
     expect(PrivacyChecker.redactDeep({ session_mode: "headless", tokens_note: "x", cookie_banner: "dismissed", accessToken: "fixture-a", set_cookie: "fixture-b", sessionId: "fixture-c" }))
       .toEqual({ session_mode: "headless", tokens_note: "x", cookie_banner: "dismissed", accessToken: "[REDACTED]", set_cookie: "[REDACTED]", sessionId: "[REDACTED]" });
   });
@@ -655,6 +692,9 @@ describe("artifact hygiene helpers", () => {
     expect(outsideFences).not.toMatch(/^- \[x\]/m);
     expect(outsideFences).not.toMatch(/^## Approved/m);
     expect(quotedBlock("a\n## b\n- c")).toBe("> a\n> \\## b\n> \\- c");
+    // Review round 5: HTML comments and setext underlines cannot hide or restyle a card.
+    expect(inlineText("Need help <!--")).toBe("Need help &lt;!--");
+    expect(quotedBlock("Approved\n===")).toBe("> Approved\n> \\===");
   });
 
   it("keeps untrusted text from forging markdown or spreadsheet structure", () => {

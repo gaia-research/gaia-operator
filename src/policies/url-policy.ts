@@ -63,6 +63,10 @@ export function isNonPublicHost(rawHost: string): boolean {
     host.endsWith(".internal") ||
     host.endsWith(".intranet") ||
     host.endsWith(".lan") ||
+    host.endsWith(".home") ||
+    host.endsWith(".corp") ||
+    host.endsWith(".svc") ||
+    host.endsWith(".localdomain") ||
     host.endsWith(".home.arpa")
   );
 }
@@ -77,6 +81,7 @@ function isNonPublicIPv4([a, b, c]: number[]): boolean {
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
     (a === 192 && b === 0 && (c === 0 || c === 2)) || // IETF protocol / TEST-NET-1
+    (a === 192 && b === 88 && c === 99) ||    // deprecated 6to4 relay anycast
     (a === 198 && (b === 18 || b === 19)) ||  // benchmarking
     (a === 198 && b === 51 && c === 100) ||   // TEST-NET-2
     (a === 203 && b === 0 && c === 113) ||    // TEST-NET-3
@@ -121,6 +126,7 @@ function isNonPublicIPv6(h: number[]): boolean {
   if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((x) => x === 0)) {
     return isNonPublicIPv4(embeddedV4());                                     // NAT64 64:ff9b::/96
   }
+  if (h[0] === 0x0100 && h.slice(1, 4).every((x) => x === 0)) return true; // 100::/64 discard
   if ((h[0] & 0xfe00) === 0xfc00) return true;  // fc00::/7 unique local
   if ((h[0] & 0xffc0) === 0xfe80) return true;  // fe80::/10 link-local
   if ((h[0] & 0xffc0) === 0xfec0) return true;  // fec0::/10 site-local (deprecated)
@@ -140,4 +146,26 @@ export function hostMatches(raw: string, domains: string[]): boolean {
     const d = domain.toLowerCase();
     return hostname === d || hostname.endsWith(`.${d}`);
   });
+}
+
+// Account/private routes on the platforms Operator works with. Matched as
+// whole path segments on those hosts only, so a docs page at
+// ".../topics/settings/" on another site is still public content.
+const PLATFORM_DOMAINS = [
+  "reddit.com", "x.com", "twitter.com", "linkedin.com", "github.com",
+  "discord.com", "discordapp.com", "youtube.com", "ycombinator.com"
+];
+const PRIVATE_SEGMENTS = new Set([
+  "message", "messages", "direct", "inbox", "settings", "preferences", "private",
+  "notifications", "chat", "dm", "dms", "account"
+]);
+
+export function isPrivateAccountUrl(raw: string): boolean {
+  if (!hostMatches(raw, PLATFORM_DOMAINS)) return false;
+  try {
+    const segments = new URL(raw).pathname.toLowerCase().split("/").filter(Boolean);
+    return segments.some((segment) => PRIVATE_SEGMENTS.has(segment));
+  } catch {
+    return true;
+  }
 }

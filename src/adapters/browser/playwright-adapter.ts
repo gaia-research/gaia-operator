@@ -1,7 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { checkNavigableUrl, isNonPublicHost } from "../../policies/url-policy.js";
-import { PrivacyChecker } from "../../policies/privacy.js";
+import { checkNavigableUrl, isNonPublicHost, isPrivateAccountUrl } from "../../policies/url-policy.js";
 
 export function isBlockedRequestUrl(raw: string): boolean {
   try {
@@ -98,7 +97,7 @@ export class PlaywrightAdapter {
       if (!landed.ok) {
         throw new Error(`Navigation refused after redirect: ${landed.reason}`);
       }
-      if (!PrivacyChecker.isPublicContentAllowed(landedUrl)) {
+      if (isPrivateAccountUrl(landedUrl)) {
         throw new Error("Navigation refused after redirect: landed on private/account content.");
       }
 

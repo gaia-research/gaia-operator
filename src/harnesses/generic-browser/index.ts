@@ -2,8 +2,7 @@ import { PlaywrightAdapter } from "../../adapters/browser/playwright-adapter.js"
 import { OperatorTask, Finding, BlockedState } from "../../core/types.js";
 import { TraceRecorder } from "../../core/trace-recorder.js";
 import { BlockDetector } from "../../core/block-detector.js";
-import { checkNavigableUrl } from "../../policies/url-policy.js";
-import { PrivacyChecker } from "../../policies/privacy.js";
+import { checkNavigableUrl, isPrivateAccountUrl } from "../../policies/url-policy.js";
 import { inlineText } from "../../core/safe-text.js";
 
 /**
@@ -24,8 +23,8 @@ export function visibleText(html: string): string {
 // "captcha", "rate limit" or "banned" are ordinary article content. Stop only
 // on structural signals: a challenge widget in the markup, or a challenge /
 // 429 interstitial phrase in the title or visible text.
-const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)/i;
-const CHALLENGE_PHRASES = /\b(verify you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b/i;
+const CHALLENGE_MARKUP = /class\s*=\s*["'][^"']*\b(g-recaptcha|h-captcha|cf-turnstile)\b|<iframe[^>]+(recaptcha\/api2\/anchor|hcaptcha\.com\/captcha|challenges\.cloudflare\.com)|\/cdn-cgi\/challenge-platform\/|id\s*=\s*["']challenge-(stage|form|running)["']/i;
+const CHALLENGE_PHRASES = /\b(verify(ing)? you are (a )?human|please complete the security check|are you a robot|checking your browser before accessing|attention required!? \| cloudflare)\b|^\s*just a moment\.\.\./i;
 const RATE_LIMIT_PHRASES = /\b(too many requests|(?:http|error|status)\s*:?\s*429)\b/i;
 
 export function detectGenericBlock(
@@ -58,7 +57,8 @@ export class GenericBrowserHarness {
     traceRecorder: TraceRecorder,
     screenshotDir?: string
   ): Promise<{ findings: Finding[]; reportContent: string; blockedState?: BlockedState }> {
-    const urls = task.queries || [];
+    // De-duplicate so per-URL outcomes in the report are unambiguous.
+    const urls = [...new Set(task.queries || [])];
     const findings: Finding[] = [];
     const skipped: string[] = [];
     const visited: string[] = [];
@@ -82,7 +82,7 @@ export class GenericBrowserHarness {
       const navigable = checkNavigableUrl(url);
       const reason = !navigable.ok
         ? navigable.reason
-        : !PrivacyChecker.isPublicContentAllowed(url)
+        : isPrivateAccountUrl(url)
           ? "URL points at private/account content and is out of scope."
           : undefined;
       if (reason) {

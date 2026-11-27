@@ -11,8 +11,14 @@ import { PrivacyChecker } from "../policies/privacy.js";
 
 // Collapse to one line so content cannot inject headings, checkboxes such as
 // "- [x] Approve as-is", or extra list items into approval/draft cards.
+// "<" is escaped so content cannot open an HTML comment or tag that hides the
+// rest of a rendered card.
+function escapeHtml(text: string): string {
+  return text.replace(/</g, "&lt;");
+}
+
 export function inlineText(value: string | undefined): string {
-  return PrivacyChecker.filterSensitiveData(value ?? "")
+  return escapeHtml(PrivacyChecker.filterSensitiveData(value ?? ""))
     .replace(/[\r\n\u2028\u2029]+/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -29,9 +35,11 @@ export function fencedText(value: string | undefined, info = "text"): string {
 
 // Prefix every line, so multi-line content stays inside the blockquote.
 export function quotedBlock(value: string | undefined): string {
-  return PrivacyChecker.filterSensitiveData(value ?? "")
+  return escapeHtml(PrivacyChecker.filterSensitiveData(value ?? ""))
     .split(/\r?\n|\u2028|\u2029/)
-    .map((line) => `> ${line.replace(/^(\s*)([#>]|[-*+]\s|\d+[.)]\s)/, "$1\\$2")}`)
+    // Escape block markers, and setext underlines (=== / ---) that would turn
+    // the previous line into a heading.
+    .map((line) => `> ${line.replace(/^(\s*)([#>]|[-*+]\s|\d+[.)]\s|=+\s*$|-+\s*$)/, "$1\\$2")}`)
     .join("\n");
 }
 

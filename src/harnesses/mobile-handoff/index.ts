@@ -6,8 +6,7 @@ import {
   MobileHandoffTask, 
   checkGuardrails, 
   generateDraft, 
-  loadRefFile,
-  checkTargetUrl
+  loadRefFile
 } from "./prepare.js";
 import { resolveContained } from "../../core/state-store.js";
 
@@ -202,20 +201,21 @@ export class MobileHandoffHarness {
       }
     }
 
-    // Re-check the target immediately before the side effect: the task file
-    // may have changed since prepare() wrote its PASSED guardrail record.
-    const urlViolations = checkTargetUrl(task);
-    if (urlViolations.length > 0) {
+    // Read draft
+    const draftText = fs.readFileSync(draftPath, "utf-8");
+
+    // Re-run every guardrail on the current task file and draft immediately
+    // before the side effect: either may have changed since prepare() wrote
+    // its PASSED record.
+    const recheck = checkGuardrails(task, draftText);
+    if (!recheck.passed) {
       return {
         success: false,
-        message: "Cannot run handoff: target URL failed validation.",
-        violations: urlViolations,
+        message: "Cannot run handoff: guardrails failed on re-check.",
+        violations: recheck.violations,
         taskId: task.id
       };
     }
-
-    // Read draft
-    const draftText = fs.readFileSync(draftPath, "utf-8");
 
     // Execute actual Termux / Intent flow
     const handoffResult = MobileHandoffAdapter.execute({
